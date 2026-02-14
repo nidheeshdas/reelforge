@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  name            String?
+  password        String?
+  credits         Int       @default(5)
+  isCreator       Boolean   @default(false)
+  stripeConnectId String?
+  openaiApiKey    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  templates   Template[]
+  assets      Asset[]
+  shaders    Shader[]
+  renders    Render[]
+  purchases  Purchase[]
+}
+
+model Template {
+  id            Int       @id @default(autoincrement())
+  creatorId     Int
+  creator       User      @relation(fields: [creatorId], references: [id])
+  title         String
+  description   String?
+  thumbnailUrl  String?
+  vidscript     String    @db.Text
+  placeholders  Json?
+  defaultValues Json?
+  priceCents    Int       @default(0)
+  category      String?
+  tags          String[]
+  downloads     Int       @default(0)
+  ratingAvg     Float     @default(0)
+  status        String    @default("draft")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  renders    Render[]
+  purchases Purchase[]
+}
+
+model Asset {
+  id         Int       @id @default(autoincrement())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id])
+  filename   String
+  filepath   String
+  fileType   String
+  fileSize   BigInt
+  duration   Float?
+  width      Int?
+  height     Int?
+  mimeType   String?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Shader {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id])
+  name      String
+  glslCode  String    @db.Text
+  uniforms  Json?
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, name])
+}
+
+model Render {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  user          User      @relation(fields: [userId], references: [id])
+  templateId    Int?
+  template      Template? @relation(fields: [templateId], references: [id])
+  vidscript     String    @db.Text
+  placeholders  Json?
+  status        String    @default("pending")
+  progress      Int       @default(0)
+  resolution    String    @default("1080x1920")
+  outputPath    String?
+  errorMessage  String?
+  creditsUsed  Int       @default(1)
+  duration      Float?
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Purchase {
+  id                 Int       @id @default(autoincrement())
+  buyerId            Int
+  buyer              User      @relation(fields: [buyerId], references: [id])
+  templateId         Int
+  template           Template  @relation(fields: [templateId], references: [id])
+  amountCents        Int
+  platformFeeCents   Int?
+  creatorPayoutCents Int?
+  createdAt          DateTime  @default(now())
+
+  @@unique([buyerId, templateId])
+}
