@@ -1,0 +1,36 @@
+{
+  "name": "reelforge",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "prisma.prisma"
+      ]
+    }
+  },
+  "postCreateCommand": "npm install && npx prisma generate",
+  "ports": [
+    {
+      "port": 3000,
+      "visibility": "public"
+    },
+    {
+      "port": 5432,
+      "visibility": "private"
+    },
+    {
+      "port": 6379,
+      "visibility": "private"
+    }
+  ],
+  "runArgs": [
+    "--env-file",
+    ".env"
+  ]
+}

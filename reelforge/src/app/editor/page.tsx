@@ -2,6 +2,8 @@
 
 import { useState, useCallback } from 'react';
 import { parseVidscript, validateVidscript, extractPlaceholders } from '@/parser';
+import { PreviewPlayer } from '@/lib/preview/PreviewPlayer';
+import { LLMChat } from '@/lib/llm/Chat';
 import Link from 'next/link';
 
 const DEFAULT_CODE = `# Welcome to ReelForge!
@@ -164,14 +166,10 @@ export default function EditorPage() {
               <span style={{ fontWeight: 500 }}>Preview</span>
             </div>
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a' }}>
-              {previewUrl ? (
-                <video 
-                  src={previewUrl} 
-                  controls 
-                  style={{ maxWidth: '100%', maxHeight: '100%' }}
-                />
+              {errors.length > 0 ? (
+                <span style={{ color: '#64748b' }}>Fix errors to see preview</span>
               ) : (
-                <span style={{ color: '#64748b' }}>Click Preview to see result</span>
+                <PreviewPlayer code={code} width={360} height={640} />
               )}
             </div>
           </div>
@@ -188,6 +186,11 @@ export default function EditorPage() {
           </div>
         )}
       </main>
+      
+      <LLMChat 
+        onInsertCode={(newCode) => setCode(newCode)} 
+        apiKey={process.env.NEXT_PUBLIC_OPENAI_API_KEY}
+      />
     </div>
   );
 }

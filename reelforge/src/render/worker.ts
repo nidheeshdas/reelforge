@@ -1,8 +1,9 @@
-import * as THREE from 'three';
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseVidscript, fillPlaceholders } from '@/parser';
 import { prisma } from '@/lib/db/prisma';
+import { getShader } from '@/shaders/library';
 
 interface RenderOptions {
   renderId: number;
@@ -21,6 +22,17 @@ const RESOLUTIONS: Record<string, Resolution> = {
   '1080x1920': { width: 1080, height: 1920 },
   '1080x1080': { width: 1080, height: 1080 },
   '1920x1080': { width: 1920, height: 1080 },
+};
+
+const FFMPEG_FILTER_MAP: Record<string, string> = {
+  monochrome: 'colorchannelmixer=.3:.59:.11:.3:.59:.11:.3:.59:.11',
+  sepia: 'colorchannelmixer=.393:.769:.189:.349:.686:.168:.272:.534:.131',
+  vignette: 'vignette=angle=PI/4',
+  contrast: 'eq=contrast=1.2',
+  saturation: 'eq=saturation=1.5',
+  brightness: 'eq=brightness=0.1',
+  blur: 'gblur=sigma=5',
+  chromatic: 'chromatic_aberration=rc=0.002:gc=0.002:bc=0.002',
 };
 
 export async function renderVideo(options: RenderOptions): Promise<string> {
@@ -47,21 +59,16 @@ export async function renderVideo(options: RenderOptions): Promise<string> {
       throw new Error('Failed to parse vidscript');
     }
     
-    const scene = buildScene(parseResult.ast, width, height);
-    const duration = estimateDuration(parseResult.ast);
-    const fps = 30;
-    const totalFrames = Math.ceil(duration * fps);
-    
     const outputDir = path.join(process.cwd(), 'public', 'renders');
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
     
     const outputPath = path.join(outputDir, `${renderId}.mp4`);
+    const ast = parseResult.ast;
+    const duration = estimateDuration(ast);
     
-    await renderFrames(scene, width, height, totalFrames, fps, outputPath, (progress) => {
-      onProgress?.(progress);
-    });
+    await processVideo(ast, outputPath, width, height, duration, onProgress);
     
     const relativePath = `/renders/${renderId}.mp4`;
     
@@ -72,6 +79,7 @@ export async function renderVideo(options: RenderOptions): Promise<string> {
         progress: 100,
         outputPath: relativePath,
         completedAt: new Date(),
+        duration,
       },
     });
     
@@ -91,21 +99,11 @@ export async function renderVideo(options: RenderOptions): Promise<string> {
   }
 }
 
-function buildScene(ast: any, width: number, height: number): THREE.Scene {
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x000000);
-  
-  const camera = new THREE.OrthographicCamera(0, width, height, 0, 0.1, 1000);
-  camera.position.z = 1;
-  
-  return scene;
-}
-
 function estimateDuration(ast: any): number {
-  let maxEnd = 30;
+  let maxEnd = 10;
   
-  for (const stmt of ast.statements) {
-    if (stmt.type === 'TimeBlock' && stmt.end.value !== Infinity) {
+  for (const stmt of ast.statements || []) {
+    if (stmt.type === 'TimeBlock' && stmt.end?.value !== Infinity) {
       maxEnd = Math.max(maxEnd, stmt.end.value);
     }
   }
@@ -113,22 +111,132 @@ function estimateDuration(ast: any): number {
   return maxEnd;
 }
 
-async function renderFrames(
-  scene: THREE.Scene,
+async function processVideo(
+  ast: any,
+  outputPath: string,
   width: number,
   height: number,
-  totalFrames: number,
-  fps: number,
-  outputPath: string,
-  onProgress: (progress: number) => void
+  duration: number,
+  onProgress?: (progress: number) => void
 ): Promise<void> {
-  console.log(`Rendering ${totalFrames} frames to ${outputPath}`);
+  const inputStatements = ast.statements?.filter((s: any) => s.type === 'Input') || [];
+  const timeBlocks = ast.statements?.filter((s: any) => s.type === 'TimeBlock') || [];
+  const outputStatement = ast.statements?.find((s: any) => s.type === 'Output');
   
-  for (let frame = 0; frame < totalFrames; frame++) {
-    onProgress(Math.round((frame / totalFrames) * 100));
-    
-    await new Promise((resolve) => setImmediate(resolve));
+  let inputFile = '';
+  let filterComplex = '';
+  const filters: string[] = [];
+  
+  for (const input of inputStatements) {
+    if (input.path && input.path.endsWith('.mp4')) {
+      inputFile = input.path.replace(/^public\//, '');
+    }
   }
   
-  fs.writeFileSync(outputPath, Buffer.alloc(0));
+  if (!inputFile || !fs.existsSync(path.join(process.cwd(), 'public', inputFile))) {
+    throw new Error('No input video file found');
+  }
+  
+  const fullInputPath = path.join(process.cwd(), 'public', inputFile);
+  
+  for (const tb of timeBlocks) {
+    for (const instruction of tb.instructions || []) {
+      if (instruction.type === 'Filter' && instruction.name) {
+        const ffmpegFilter = FFMPEG_FILTER_MAP[instruction.name.toLowerCase()];
+        if (ffmpegFilter) {
+          filters.push(ffmpegFilter);
+        }
+      }
+      
+      if (instruction.type === 'Text' && instruction.content) {
+        const textFilter = buildTextFilter(instruction, tb.start?.value || 0, tb.end?.value || duration);
+        if (textFilter) {
+          filters.push(textFilter);
+        }
+      }
+    }
+  }
+  
+  if (filters.length > 0) {
+    filterComplex = filters.join(',');
+  }
+  
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-y',
+      '-i', fullInputPath,
+      '-t', duration.toString(),
+      '-vf', `scale=${width}:${height}${filterComplex ? ',' + filterComplex : ''}`,
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-crf', '23',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      outputPath,
+    ];
+    
+    const ffmpeg = spawn('ffmpeg', args);
+    
+    let stderr = '';
+    ffmpeg.stderr.on('data', (data) => {
+      stderr += data.toString();
+      
+      const timeMatch = stderr.match(/time=(\d+):(\d+):(\d+\.\d+)/);
+      if (timeMatch) {
+        const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+        const progress = Math.min(99, Math.round((currentTime / duration) * 100));
+        onProgress?.(progress);
+      }
+    });
+    
+    ffmpeg.on('close', (code) => {
+      if (code === 0) {
+        onProgress?.(100);
+        resolve();
+      } else {
+        reject(new Error(`FFmpeg failed with code ${code}: ${stderr}`));
+      }
+    });
+    
+    ffmpeg.on('error', (err) => {
+      reject(new Error(`Failed to run ffmpeg: ${err.message}`));
+    });
+  });
+}
+
+function buildTextFilter(instruction: any, startTime: number, endTime: number): string {
+  const content = instruction.content || '';
+  const params = instruction.params || {};
+  const position = params.position || 'center';
+  const style = params.style || 'title';
+  const color = params.color || 'white';
+  const stroke = params.stroke || 'black';
+  
+  let fontsize = style === 'title' ? '48' : '36';
+  if (params.size) fontsize = params.size.toString();
+  
+  let x = '(w-text_w)/2';
+  let y = '(h-text_h)/2';
+  
+  if (position === 'top') {
+    y = '20';
+  } else if (position === 'bottom') {
+    y = 'h-text_h-20';
+  } else if (position === 'top-left') {
+    x = '10';
+    y = '10';
+  } else if (position === 'top-right') {
+    x = 'w-text_w-10';
+    y = '10';
+  } else if (position === 'bottom-left') {
+    x = '10';
+    y = 'h-text_h-10';
+  } else if (position === 'bottom-right') {
+    x = 'w-text_w-10';
+    y = 'h-text_h-10';
+  }
+  
+  const escapedText = content.replace(/'/g, "\\'").replace(/:/g, '\\:');
+  
+  return `drawtext=text='${escapedText}':fontsize=${fontsize}:fontcolor=${color}:x=${x}:y=${y}:borderw=2:bordercolor=${stroke}:enable='between(t,${startTime},${endTime})'`;
 }
