@@ -12,18 +12,23 @@ model User {
   email           String    @unique
   name            String?
   password        String?
+  emailVerified   DateTime?
+  image           String?
   credits         Int       @default(5)
   isCreator       Boolean   @default(false)
   stripeConnectId String?
-  openaiApiKey    String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  templates   Template[]
-  assets      Asset[]
-  shaders    Shader[]
-  renders    Render[]
-  purchases  Purchase[]
+  templates       Template[]
+  assets          Asset[]
+  shaders         Shader[]
+  renders         Render[]
+  purchases       Purchase[]
+  accounts        Account[]
+  sessions        Session[]
+  apiKeys         ApiKey[]
+  connectedApps   ConnectedApp[]
 }
 
 model Template {
@@ -61,9 +66,13 @@ model Asset {
   width      Int?
   height     Int?
   mimeType   String?
+  source     String?   // "local", "google-drive", "dropbox"
+  externalId String?  // Cloud storage file ID
+  thumbnailUrl String?
   createdAt  DateTime  @default(now())
 
   @@index([userId])
+  @@index([userId, source])
 }
 
 model Shader {
@@ -112,4 +121,59 @@ model Purchase {
   createdAt          DateTime  @default(now())
 
   @@unique([buyerId, templateId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            Int
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?  @db.Text
+  access_token      String?  @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?  @db.Text
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires      DateTime
+}
+
+model ApiKey {
+  id          String   @id @default(cuid())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider    String   // "openai", "anthropic", "openrouter"
+  key         String   // Encrypted API key
+  name        String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime?
+
+  @@unique([userId, provider])
+}
+
+model ConnectedApp {
+  id           String   @id @default(cuid())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     String   // "github", "google-drive", "dropbox"
+  accessToken  String   @db.Text // Encrypted
+  refreshToken String?  @db.Text // Encrypted
+  expiresAt    DateTime?
+  metadata     Json?    // Provider-specific data
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, provider])
 }

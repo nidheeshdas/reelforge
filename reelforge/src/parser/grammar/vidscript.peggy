@@ -17,7 +17,7 @@
 }
 
 Parser
-  = __ statements:(Statement __)* {
+  = _ statements:(Statement __)* {
       var filtered = [];
       for (var i = 0; i < statements.length; i++) {
         if (statements[i][0] !== null) filtered.push(statements[i][0]);
@@ -27,6 +27,9 @@ Parser
 
 __
   = [ \t\r\n]+
+
+_
+  = [ \t\r\n]*
 
 Statement
   = Comment
