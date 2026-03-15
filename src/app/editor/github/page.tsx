@@ -77,7 +77,7 @@ export default function GitHubBrowserPage() {
 
   const handleConnect = () => {
     setConnecting(true);
-    signIn('github', { callbackUrl: '/editor/github' });
+    window.location.href = '/api/auth/connect/github?callbackUrl=/editor/github';
   };
 
   const handleRepoSelect = async (repo: Repo) => {

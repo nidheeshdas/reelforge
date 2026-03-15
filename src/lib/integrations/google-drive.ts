@@ -109,7 +109,7 @@ export class GoogleDriveService {
     return response.data.id || 'root';
   }
 
-  static getAuthUrl(): string {
+  static getAuthUrl(callbackPath: string = '/account'): string {
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
@@ -118,6 +118,7 @@ export class GoogleDriveService {
 
     return oauth2Client.generateAuthUrl({
       access_type: 'offline',
+      state: callbackPath,
       scope: [
         'https://www.googleapis.com/auth/drive.readonly',
         'https://www.googleapis.com/auth/userinfo.email',

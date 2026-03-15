@@ -53,6 +53,12 @@ File: 01-exec-summary.md
 - ✅ Template marketplace ready (not v1)
 - ✅ LLM integration (user provides API key)
 - ❌ Mobile app (v2)
+
+## Operational setup guides
+
+- `16-google-drive-setup.md`
+- `17-dropbox-setup.md`
+- `18-cloudflare-r2-setup.md`
  Tech Stack
 | Component | Technology |
 |-----------|-----------|

@@ -68,10 +68,10 @@ export class DropboxService {
     };
   }
 
-  static getAuthUrl(): string {
+  static getAuthUrl(callbackPath: string = '/account'): string {
     const clientId = process.env.DROPBOX_APP_KEY;
     const redirectUri = process.env.NEXTAUTH_URL + '/api/auth/callback/dropbox';
-    const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&token_access_type=offline`;
+    const authUrl = `https://www.dropbox.com/oauth2/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&token_access_type=offline&state=${encodeURIComponent(callbackPath)}`;
     return authUrl;
   }
 

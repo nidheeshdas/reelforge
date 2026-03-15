@@ -1,134 +1,211 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import Link from 'next/link';
+import { signIn, useSession } from 'next-auth/react';
+import {
+  Cloud,
+  Download,
+  FolderOpen,
+  Image,
+  Link2,
+  Loader2,
+  Lock,
+  Music,
+  Plus,
+  RefreshCw,
+  Sparkles,
+  Trash2,
+  Upload,
+  Video,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
-import { signIn, useSession } from 'next-auth/react';
-import { 
-  Upload, 
-  FolderOpen, 
-  Cloud, 
-  Video, 
-  Music, 
-  Image, 
-  FileText,
-  Loader2,
-  Trash2,
-  Plus,
-  Link2
-} from 'lucide-react';
 
 interface Asset {
-  id: number;
+  id: number | string;
   filename: string;
+  filepath?: string;
   fileType: string;
   fileSize: number;
   duration?: number;
   source?: string;
 }
 
-interface AssetLibraryProps {
-  onInsertAsset?: (assetPath: string) => void;
+interface CloudFile {
+  id: string;
+  name: string;
+  mimeType?: string;
+  size?: string | number;
+  modifiedTime?: string;
+  path?: string;
+  isFolder?: boolean;
 }
 
-export function AssetLibrary({ onInsertAsset }: AssetLibraryProps) {
-  const { data: session, status } = useSession();
-  const [assets, setAssets] = useState<Asset[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [activeTab, setActiveTab] = useState('local');
-  const [gdriveFiles, setGdriveFiles] = useState<any[]>([]);
-  const [dropboxFiles, setDropboxFiles] = useState<any[]>([]);
-  const [connections, setConnections] = useState<any>({});
+interface AssetLibraryProps {
+  onInsertAsset?: (assetPath: string) => void;
+  mode?: 'panel' | 'page';
+}
 
-  const loadAssets = useCallback(async () => {
-    setLoading(true);
-    try {
-      let response;
-      if (status === 'unauthenticated') {
-        response = await fetch('/api/assets/samples');
-      } else {
-        response = await fetch('/api/assets');
-      }
-      
-      if (response.ok) {
-        const data = await response.json();
-        setAssets(data.assets || []);
-      } else if (response.status === 401) {
-        const sampleResponse = await fetch('/api/assets/samples');
-        if (sampleResponse.ok) {
-          const sampleData = await sampleResponse.json();
-          setAssets(sampleData.assets || []);
-        } else {
-          setAssets([]);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load assets:', error);
-      setAssets([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [status]);
+type SourceTab = 'local' | 'samples' | 'gdrive' | 'dropbox';
+
+export function AssetLibrary({ onInsertAsset, mode = 'panel' }: AssetLibraryProps) {
+  const { data: session, status } = useSession();
+  const [localAssets, setLocalAssets] = useState<Asset[]>([]);
+  const [sampleAssets, setSampleAssets] = useState<Asset[]>([]);
+  const [gdriveFiles, setGdriveFiles] = useState<CloudFile[]>([]);
+  const [dropboxFiles, setDropboxFiles] = useState<CloudFile[]>([]);
+  const [connections, setConnections] = useState<Record<string, unknown>>({});
+  const [activeTab, setActiveTab] = useState<SourceTab>('local');
+  const [loadingLocal, setLoadingLocal] = useState(false);
+  const [loadingSamples, setLoadingSamples] = useState(false);
+  const [loadingDrive, setLoadingDrive] = useState(false);
+  const [loadingDropbox, setLoadingDropbox] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const isAuthenticated = status === 'authenticated' && !!session;
+  const isPageMode = mode === 'page';
 
   useEffect(() => {
-    if (status !== 'loading') {
-      loadAssets();
-    }
-  }, [status, loadAssets]);
+    setActiveTab(isAuthenticated ? 'local' : 'samples');
+  }, [isAuthenticated]);
 
-  const loadConnections = useCallback(async () => {
+  const loadLocalAssets = useCallback(async () => {
+    if (!isAuthenticated) {
+      setLocalAssets([]);
+      return;
+    }
+
+    setLoadingLocal(true);
     try {
-      const response = await fetch('/api/account/connections');
-      if (response.ok) {
-        const data = await response.json();
-        const connMap: Record<string, any> = {};
-        data.connections?.forEach((c: any) => {
-          connMap[c.provider] = c;
-        });
-        setConnections(connMap);
-        
-        if (connMap['google-drive']) {
-          loadGdriveFiles();
-        }
-        if (connMap['dropbox']) {
-          loadDropboxFiles();
-        }
+      const response = await fetch('/api/assets');
+      if (!response.ok) {
+        throw new Error('Failed to fetch local assets');
       }
+
+      const data = await response.json();
+      setLocalAssets(data.assets || []);
     } catch (error) {
-      console.error('Failed to load connections:', error);
+      console.error('Failed to load assets:', error);
+      setLocalAssets([]);
+    } finally {
+      setLoadingLocal(false);
+    }
+  }, [isAuthenticated]);
+
+  const loadSampleAssets = useCallback(async () => {
+    setLoadingSamples(true);
+    try {
+      const response = await fetch('/api/assets/samples');
+      if (!response.ok) {
+        throw new Error('Failed to fetch sample assets');
+      }
+
+      const data = await response.json();
+      setSampleAssets(data.assets || []);
+    } catch (error) {
+      console.error('Failed to load sample assets:', error);
+      setSampleAssets([]);
+    } finally {
+      setLoadingSamples(false);
     }
   }, []);
 
-  const loadGdriveFiles = async () => {
+  const loadGdriveFiles = useCallback(async () => {
+    if (!isAuthenticated) return;
+
+    setLoadingDrive(true);
     try {
       const response = await fetch('/api/integrations/google-drive/files');
-      if (response.ok) {
-        const data = await response.json();
-        setGdriveFiles(data.files || []);
+      if (!response.ok) {
+        throw new Error('Failed to fetch Google Drive files');
       }
-    } catch (error) {
-      console.error('Failed to load GDrive files:', error);
-    }
-  };
 
-  const loadDropboxFiles = async () => {
+      const data = await response.json();
+      setGdriveFiles(data.files || []);
+    } catch (error) {
+      console.error('Failed to load Google Drive files:', error);
+      setGdriveFiles([]);
+    } finally {
+      setLoadingDrive(false);
+    }
+  }, [isAuthenticated]);
+
+  const loadDropboxFiles = useCallback(async () => {
+    if (!isAuthenticated) return;
+
+    setLoadingDropbox(true);
     try {
       const response = await fetch('/api/integrations/dropbox/files');
-      if (response.ok) {
-        const data = await response.json();
-        setDropboxFiles(data.files || []);
+      if (!response.ok) {
+        throw new Error('Failed to fetch Dropbox files');
       }
+
+      const data = await response.json();
+      setDropboxFiles(data.files || []);
     } catch (error) {
       console.error('Failed to load Dropbox files:', error);
+      setDropboxFiles([]);
+    } finally {
+      setLoadingDropbox(false);
     }
-  };
+  }, [isAuthenticated]);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+  const loadConnections = useCallback(async () => {
+    if (!isAuthenticated) {
+      setConnections({});
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/account/connections');
+      if (!response.ok) {
+        throw new Error('Failed to fetch connections');
+      }
+
+      const data = await response.json();
+      const connectionMap: Record<string, unknown> = {};
+      data.connections?.forEach((connection: { provider: string }) => {
+        connectionMap[connection.provider] = connection;
+      });
+      setConnections(connectionMap);
+    } catch (error) {
+      console.error('Failed to load connections:', error);
+      setConnections({});
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    void loadSampleAssets();
+  }, [loadSampleAssets]);
+
+  useEffect(() => {
+    if (status === 'loading') return;
+    void loadLocalAssets();
+    void loadConnections();
+  }, [loadConnections, loadLocalAssets, status]);
+
+  useEffect(() => {
+    if (!connections['google-drive']) {
+      setGdriveFiles([]);
+      return;
+    }
+    void loadGdriveFiles();
+  }, [connections, loadGdriveFiles]);
+
+  useEffect(() => {
+    if (!connections.dropbox) {
+      setDropboxFiles([]);
+      return;
+    }
+    void loadDropboxFiles();
+  }, [connections, loadDropboxFiles]);
+
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (!files || files.length === 0 || !isAuthenticated) return;
 
     setUploading(true);
     try {
@@ -136,265 +213,507 @@ export function AssetLibrary({ onInsertAsset }: AssetLibraryProps) {
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await fetch('/api/assets/upload', {
+        const response = await fetch('/api/assets', {
           method: 'POST',
           body: formData,
         });
 
-        if (response.ok) {
-          await loadAssets();
+        if (!response.ok) {
+          throw new Error(`Failed to upload ${file.name}`);
         }
       }
+
+      await loadLocalAssets();
     } catch (error) {
       console.error('Upload failed:', error);
     } finally {
       setUploading(false);
+      event.target.value = '';
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: number | string) => {
+    if (!isAuthenticated) return;
+
     try {
-      const response = await fetch(`/api/assets/${id}`, { method: 'DELETE' });
-      if (response.ok) {
-        setAssets(assets.filter(a => a.id !== id));
+      const response = await fetch(`/api/assets?id=${id}`, { method: 'DELETE' });
+      if (!response.ok) {
+        throw new Error('Failed to delete asset');
       }
+      setLocalAssets((current) => current.filter((asset) => asset.id !== id));
     } catch (error) {
       console.error('Delete failed:', error);
     }
   };
 
-  const handleConnectGoogleDrive = () => {
-    signIn('google', { callbackUrl: '/editor' });
-  };
-
-  const handleConnectDropbox = () => {
-    window.location.href = '/api/auth/dropbox';
-  };
-
   const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    if (!Number.isFinite(bytes) || bytes <= 0) return 'Unknown size';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
   const formatDuration = (seconds?: number) => {
-    if (!seconds) return '';
+    if (!seconds || !Number.isFinite(seconds)) return null;
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   const getFileIcon = (type: string) => {
-    if (type.startsWith('video')) return <Video className="h-4 w-4 text-blue-500" />;
-    if (type.startsWith('audio')) return <Music className="h-4 w-4 text-green-500" />;
-    if (type.startsWith('image')) return <Image className="h-4 w-4 text-purple-500" />;
-    return <FileText className="h-4 w-4 text-gray-500" />;
+    const normalized = type.toLowerCase();
+    if (normalized.startsWith('video')) return <Video className="h-4 w-4 text-blue-300" />;
+    if (normalized.startsWith('audio')) return <Music className="h-4 w-4 text-emerald-300" />;
+    if (normalized.startsWith('image')) return <Image className="h-4 w-4 text-fuchsia-300" />;
+    return <FolderOpen className="h-4 w-4 text-slate-300" />;
   };
 
-  const renderAssetCard = (asset: any, source?: string) => {
-    const assetPath = asset.filepath || (asset.filename ? `/uploads/${asset.filename}` : '');
+  const localCount = localAssets.length;
+  const sampleCount = sampleAssets.length;
+  const connectedSources = Object.keys(connections).length;
+
+  const assetSummaryCards = useMemo(
+    () => [
+      {
+        label: 'Local library',
+        value: localCount,
+        tone: '#60a5fa',
+      },
+      {
+        label: 'Sample assets',
+        value: sampleCount,
+        tone: '#c084fc',
+      },
+      {
+        label: 'Connected sources',
+        value: connectedSources,
+        tone: '#34d399',
+      },
+    ],
+    [connectedSources, localCount, sampleCount]
+  );
+
+  const renderAssetCard = (
+    asset: {
+      id: number | string;
+      filename: string;
+      filepath?: string;
+      fileType: string;
+      fileSize: number;
+      duration?: number;
+    },
+    sourceLabel: string,
+    removable = false,
+  ) => {
+    const canInsert = !!onInsertAsset && !!asset.filepath;
+
     return (
-    <Card
-      key={asset.id}
-      className="cursor-pointer hover:shadow-md transition-shadow"
-      onClick={() => {
-        if (assetPath && onInsertAsset) {
-          onInsertAsset(assetPath);
-        }
-      }}
-    >
-      <CardContent className="p-3">
-        <div className="flex items-start gap-3">
-          {getFileIcon(asset.fileType || asset.mimeType)}
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{asset.filename || asset.name}</p>
-            <p className="text-xs text-gray-500">
-              {formatFileSize(Number(asset.fileSize || asset.size))}
-              {formatDuration(asset.duration) && ` • ${formatDuration(asset.duration)}`}
-              {source && ` • ${source}`}
+      <Card
+        key={`${sourceLabel}-${asset.id}`}
+        className="border-slate-800/80 bg-slate-950/55 shadow-none"
+      >
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <div
+              className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/80"
+            >
+              {getFileIcon(asset.fileType)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex items-center gap-2">
+                <p className="truncate text-sm font-semibold text-slate-100">{asset.filename}</p>
+                <span
+                  className="rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.18em]"
+                  style={{ borderColor: '#23314f', color: '#8fb1ff', background: '#101a2f' }}
+                >
+                  {sourceLabel}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                {formatFileSize(Number(asset.fileSize))}
+                {formatDuration(asset.duration) ? ` • ${formatDuration(asset.duration)}` : ''}
+              </p>
+              {asset.filepath && (
+                <p className="mt-1 truncate text-[11px] text-slate-500">{asset.filepath}</p>
+              )}
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {canInsert ? (
+              <Button
+                size="sm"
+                className="bg-blue-600 text-white hover:bg-blue-500"
+                onClick={() => onInsertAsset?.(asset.filepath!)}
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Insert into script
+              </Button>
+            ) : (
+              <div className="rounded-md border border-slate-800 px-2.5 py-1.5 text-xs text-slate-400">
+                Import-only source
+              </div>
+            )}
+            {removable && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-slate-700 bg-transparent text-slate-200 hover:bg-slate-900"
+                onClick={() => handleDelete(asset.id)}
+              >
+                <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                Remove
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderCloudFiles = (
+    files: CloudFile[],
+    sourceLabel: string,
+    loading: boolean,
+    onRefresh: () => void,
+    configured: boolean,
+    providerLabel: string,
+  ) => {
+    if (!isAuthenticated) {
+      return (
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-6 text-center">
+          <Lock className="mx-auto mb-3 h-10 w-10 text-slate-500" />
+          <h4 className="text-sm font-semibold text-slate-100">{providerLabel} requires sign-in</h4>
+          <p className="mt-2 text-sm text-slate-400">
+            Browse sample assets now, then sign in to connect your own cloud drives.
+          </p>
+          <Button className="mt-4" onClick={() => signIn(undefined, { callbackUrl: '/assets' })}>
+            Sign in to continue
+          </Button>
+        </div>
+      );
+    }
+
+    if (!configured) {
+      return (
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-6 text-center">
+          <Cloud className="mx-auto mb-3 h-10 w-10 text-slate-500" />
+          <h4 className="text-sm font-semibold text-slate-100">{providerLabel} not connected</h4>
+          <p className="mt-2 text-sm text-slate-400">
+            Finish the OAuth setup in your account page, then come back here to browse files.
+          </p>
+          <Button asChild variant="outline" className="mt-4 border-slate-700 bg-transparent text-slate-100">
+            <Link href="/account">Open account settings</Link>
+          </Button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-950/55 px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-100">{providerLabel} browser</p>
+            <p className="text-xs text-slate-400">
+              Import files into your workflow once they are linked into ReelForge storage.
             </p>
           </div>
-          {source === 'local' && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-red-500 hover:text-red-700"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleDelete(asset.id);
-              }}
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
-          )}
-          {onInsertAsset && assetPath && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={(e) => {
-                e.stopPropagation();
-                onInsertAsset(assetPath);
-              }}
-            >
-              <Plus className="h-3 w-3 mr-1" />
-              Insert
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-slate-700 bg-transparent text-slate-100"
+            onClick={onRefresh}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Refresh
+          </Button>
         </div>
-      </CardContent>
-    </Card>
-  );
-  };
 
-  if (!session) {
-    return (
-      <div className="p-4">
-        <div className="mb-4 text-center">
-          <p className="text-gray-500 mb-4">Sign in to upload and manage your assets</p>
-          <Button onClick={() => signIn()}>Sign In</Button>
-        </div>
-        
-        <div className="border-t pt-4">
-          <h4 className="text-sm font-medium mb-3">Sample Assets</h4>
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-            </div>
-          ) : assets.length > 0 ? (
-            <div className="space-y-2">
-              {assets.map(asset => renderAssetCard(asset, 'samples'))}
-            </div>
-          ) : (
-            <p className="text-center text-gray-500 py-8 text-sm">No sample assets available</p>
-          )}
-        </div>
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+          </div>
+        ) : files.length > 0 ? (
+          <div className="space-y-3">
+            {files.map((file) =>
+              renderAssetCard(
+                {
+                  id: file.id,
+                  filename: file.name,
+                  fileType: file.mimeType || 'file',
+                  fileSize: Number(file.size || 0),
+                },
+                sourceLabel,
+              )
+            )}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/55 px-4 py-8 text-center text-sm text-slate-400">
+            No compatible files found yet.
+          </div>
+        )}
       </div>
     );
-  }
+  };
 
-  return (
-    <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-      <TabsList className="grid grid-cols-3 mx-4 mt-2">
-        <TabsTrigger value="local" className="text-xs">
-          <Upload className="h-3 w-3 mr-1" />
-          Local
-        </TabsTrigger>
-        <TabsTrigger value="gdrive" className="text-xs">
-          <Cloud className="h-3 w-3 mr-1" />
-          Drive
-        </TabsTrigger>
-        <TabsTrigger value="dropbox" className="text-xs">
-          <Cloud className="h-3 w-3 mr-1" />
-          Dropbox
-        </TabsTrigger>
-      </TabsList>
+  const renderLibrarySection = (
+    assets: Asset[],
+    {
+      emptyTitle,
+      emptyDescription,
+      sourceLabel,
+      removable,
+      showUpload,
+      loading,
+    }: {
+      emptyTitle: string;
+      emptyDescription: string;
+      sourceLabel: string;
+      removable: boolean;
+      showUpload: boolean;
+      loading: boolean;
+    }
+  ) => (
+    <div className="space-y-4">
+      {showUpload && (
+        <div className="rounded-2xl border border-slate-800 bg-[linear-gradient(180deg,rgba(21,32,55,0.95),rgba(12,18,32,0.95))] p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-slate-100">Upload new assets</p>
+              <p className="mt-1 text-sm text-slate-400">
+                Add video, audio, or image files to your working library for quick insertion.
+              </p>
+            </div>
+            <div className="rounded-full border border-blue-400/30 bg-blue-500/10 p-2 text-blue-200">
+              <Upload className="h-4 w-4" />
+            </div>
+          </div>
 
-      <TabsContent value="local" className="flex-1 overflow-auto m-0 p-4 pt-2">
-        <div className="space-y-4">
-          <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center">
-            <Upload className="h-8 w-8 mx-auto text-gray-400 mb-2" />
-            <p className="text-sm text-gray-500 mb-2">Drag & drop files here</p>
-            <p className="text-xs text-gray-400 mb-3">or click to browse</p>
+          <div className="mt-4 rounded-2xl border border-dashed border-slate-700/80 bg-slate-950/50 p-5 text-center">
+            <p className="text-sm text-slate-200">Drag files here or pick them from disk.</p>
+            <p className="mt-1 text-xs text-slate-500">Supported: video, audio, and image files.</p>
             <Input
+              id={`file-upload-${mode}`}
               type="file"
               multiple
               accept="video/*,audio/*,image/*"
               onChange={handleUpload}
               className="hidden"
-              id="file-upload"
             />
-            <Button asChild disabled={uploading}>
-              <label htmlFor="file-upload" className="cursor-pointer">
+            <Button asChild disabled={uploading} className="mt-4 bg-blue-600 text-white hover:bg-blue-500">
+              <label htmlFor={`file-upload-${mode}`} className="cursor-pointer">
                 {uploading ? (
                   <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Uploading...
                   </>
                 ) : (
                   <>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Upload Files
+                    <Plus className="mr-2 h-4 w-4" />
+                    Choose files
                   </>
                 )}
               </label>
             </Button>
           </div>
-
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
-            </div>
-          ) : assets.length > 0 ? (
-            <div className="space-y-2">
-              {assets.map(asset => renderAssetCard(asset, 'local'))}
-            </div>
-          ) : (
-            <p className="text-center text-gray-500 py-8 text-sm">No assets yet</p>
-          )}
         </div>
-      </TabsContent>
+      )}
 
-      <TabsContent value="gdrive" className="flex-1 overflow-auto m-0 p-4 pt-2">
-        {connections['google-drive'] ? (
-          <div className="space-y-2">
-            <Button variant="outline" size="sm" onClick={loadGdriveFiles} className="w-full">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
-            </Button>
-            {gdriveFiles.length > 0 ? (
-              gdriveFiles.map(file => renderAssetCard({ ...file, id: file.id }, 'google-drive'))
-            ) : (
-              <p className="text-center text-gray-500 py-8 text-sm">No compatible files found</p>
-            )}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <Cloud className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-            <p className="text-sm text-gray-500 mb-4">Connect Google Drive to browse your files</p>
-            <Button onClick={handleConnectGoogleDrive}>
-              <Link2 className="h-4 w-4 mr-2" />
-              Connect Google Drive
-            </Button>
-          </div>
-        )}
-      </TabsContent>
-
-      <TabsContent value="dropbox" className="flex-1 overflow-auto m-0 p-4 pt-2">
-        {connections['dropbox'] ? (
-          <div className="space-y-2">
-            <Button variant="outline" size="sm" onClick={loadDropboxFiles} className="w-full">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh
-            </Button>
-            {dropboxFiles.length > 0 ? (
-              dropboxFiles.map(file => renderAssetCard({ ...file, id: file.id }, 'dropbox'))
-            ) : (
-              <p className="text-center text-gray-500 py-8 text-sm">No compatible files found</p>
-            )}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <Cloud className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-            <p className="text-sm text-gray-500 mb-4">Connect Dropbox to browse your files</p>
-            <Button onClick={handleConnectDropbox}>
-              <Link2 className="h-4 w-4 mr-2" />
-              Connect Dropbox
-            </Button>
-          </div>
-        )}
-      </TabsContent>
-    </Tabs>
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+        </div>
+      ) : assets.length > 0 ? (
+        <div className="space-y-3">
+          {assets.map((asset) => renderAssetCard(asset, sourceLabel, removable))}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/55 px-4 py-8 text-center">
+          <p className="text-sm font-semibold text-slate-100">{emptyTitle}</p>
+          <p className="mt-2 text-sm text-slate-400">{emptyDescription}</p>
+        </div>
+      )}
+    </div>
   );
-}
 
-function RefreshCw(props: React.SVGProps<SVGSVGElement>) {
+  const tabTriggerClass =
+    'gap-1.5 rounded-xl border border-transparent px-3 py-2 text-xs font-medium text-slate-400 transition data-[state=active]:border-slate-700 data-[state=active]:bg-slate-900 data-[state=active]:text-slate-50 data-[state=active]:shadow-none hover:text-slate-200';
+
+  const tabContentClass =
+    'm-0 mt-4 min-h-0 flex-1 overflow-y-auto rounded-[1.4rem] border border-slate-800/80 bg-slate-950/45 p-4 pr-3';
+
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-      <path d="M3 3v5h5" />
-      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-      <path d="M16 16h5v5" />
-    </svg>
+    <div className={`flex h-full min-h-0 flex-col ${isPageMode ? 'gap-6 p-6' : 'gap-4 p-4'}`}>
+      <div className="rounded-3xl border border-slate-800 bg-[linear-gradient(180deg,rgba(18,27,47,0.98),rgba(10,15,26,0.95))] p-5 shadow-[0_20px_60px_rgba(5,10,20,0.25)]">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1 text-[11px] uppercase tracking-[0.24em] text-blue-200">
+              <Sparkles className="h-3.5 w-3.5" />
+              Asset workspace
+            </div>
+            <h3 className="text-lg font-semibold text-slate-100">
+              {isPageMode ? 'Bring your media into ReelForge' : 'Manage sources for your script'}
+            </h3>
+            <p className="mt-2 text-sm text-slate-400">
+              {isAuthenticated
+                ? 'Upload local files, browse sample media, and prepare your connected cloud sources for importing into scripts.'
+                : 'Browse bundled sample assets now, then sign in to upload your own library and connect external drives.'}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {!isAuthenticated ? (
+              <>
+                <Button onClick={() => signIn(undefined, { callbackUrl: '/assets' })}>
+                  Sign in to upload
+                </Button>
+                <Button asChild variant="outline" className="border-slate-700 bg-transparent text-slate-100">
+                  <Link href="/editor">Open editor</Link>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button asChild variant="outline" className="border-slate-700 bg-transparent text-slate-100">
+                  <Link href="/editor">Back to editor</Link>
+                </Button>
+                <Button asChild className="bg-blue-600 text-white hover:bg-blue-500">
+                  <Link href="/account">Manage connections</Link>
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className={`mt-5 grid gap-3 ${isPageMode ? 'md:grid-cols-3' : 'grid-cols-1'}`}>
+          {assetSummaryCards.map((card) => (
+            <div
+              key={card.label}
+              className="rounded-2xl border px-4 py-3"
+              style={{
+                borderColor: '#1f2a44',
+                background: 'rgba(8, 13, 25, 0.72)',
+              }}
+            >
+              <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500">{card.label}</div>
+              <div className="mt-2 text-2xl font-semibold" style={{ color: card.tone }}>
+                {card.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as SourceTab)} className="flex min-h-0 flex-1 flex-col">
+        <TabsList className="grid w-full grid-cols-4 rounded-2xl border border-slate-800 bg-slate-950/60 p-1.5">
+          <TabsTrigger value="local" className={tabTriggerClass}>
+            <Upload className="h-3.5 w-3.5" />
+            Local
+          </TabsTrigger>
+          <TabsTrigger value="samples" className={tabTriggerClass}>
+            <Download className="h-3.5 w-3.5" />
+            Samples
+          </TabsTrigger>
+          <TabsTrigger value="gdrive" className={tabTriggerClass}>
+            <Cloud className="h-3.5 w-3.5" />
+            Drive
+          </TabsTrigger>
+          <TabsTrigger value="dropbox" className={tabTriggerClass}>
+            <Cloud className="h-3.5 w-3.5" />
+            Dropbox
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="local" className={tabContentClass}>
+          {isAuthenticated ? (
+            renderLibrarySection(localAssets, {
+              emptyTitle: 'No local assets yet',
+              emptyDescription: 'Upload a few clips or tracks to start building your project library.',
+              sourceLabel: 'local',
+              removable: true,
+              showUpload: true,
+              loading: loadingLocal,
+            })
+          ) : (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-6 text-center">
+              <Lock className="mx-auto mb-3 h-10 w-10 text-slate-500" />
+              <h4 className="text-sm font-semibold text-slate-100">Sign in to create a local library</h4>
+              <p className="mt-2 text-sm text-slate-400">
+                Your own uploads appear here once you authenticate. Until then, use the Samples tab to experiment.
+              </p>
+              <Button className="mt-4" onClick={() => signIn(undefined, { callbackUrl: '/assets' })}>
+                Sign in
+              </Button>
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="samples" className={tabContentClass}>
+          {renderLibrarySection(sampleAssets, {
+            emptyTitle: 'No sample assets available',
+            emptyDescription: 'The bundled media pack is empty right now.',
+            sourceLabel: 'sample',
+            removable: false,
+            showUpload: false,
+            loading: loadingSamples,
+          })}
+        </TabsContent>
+
+        <TabsContent value="gdrive" className={tabContentClass}>
+          {renderCloudFiles(
+            gdriveFiles,
+            'drive',
+            loadingDrive,
+            () => void loadGdriveFiles(),
+            !!connections['google-drive'],
+            'Google Drive',
+          )}
+        </TabsContent>
+
+        <TabsContent value="dropbox" className={tabContentClass}>
+          {renderCloudFiles(
+            dropboxFiles,
+            'dropbox',
+            loadingDropbox,
+            () => void loadDropboxFiles(),
+            !!connections.dropbox,
+            'Dropbox',
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {isPageMode && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <Card className="border-slate-800 bg-slate-950/55 shadow-none lg:col-span-2">
+            <CardContent className="p-5">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-2.5 text-slate-200">
+                  <FolderOpen className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-100">Asset workflow</p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Upload local media for immediate use, use bundled samples to prototype, and connect cloud providers when you are ready to import from external storage.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-800 bg-slate-950/55 shadow-none">
+            <CardContent className="p-5">
+              <p className="text-sm font-semibold text-slate-100">Need integrations?</p>
+              <p className="mt-1 text-sm text-slate-400">
+                Configure Google Drive and Dropbox credentials in your deployment environment, then connect them from the account page.
+              </p>
+              <Button asChild variant="outline" className="mt-4 w-full border-slate-700 bg-transparent text-slate-100">
+                <Link href="/account">
+                  <Link2 className="mr-2 h-4 w-4" />
+                  Open account settings
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
   );
 }

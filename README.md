@@ -78,6 +78,12 @@ Copy `.env.example` to `.env` and configure:
 
 - `DATABASE_URL` - PostgreSQL connection
 - `NEXTAUTH_SECRET` - Auth secret
+- `NEXTAUTH_URL` - Public app URL used by OAuth callbacks
+- `ENCRYPTION_KEY` - 64-char hex key used to encrypt stored provider tokens and API keys
+- `GITHUB_ID` / `GITHUB_SECRET` - GitHub OAuth app credentials for repository import
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - Google OAuth credentials for Drive import
+- `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` - Dropbox OAuth credentials for Dropbox import
+- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_ENDPOINT` - planned Cloudflare R2 storage configuration
 - `REDIS_HOST/PORT` - For job queue
 
 ## Development

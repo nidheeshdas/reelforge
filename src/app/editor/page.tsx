@@ -209,8 +209,8 @@ export default function EditorPage() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#090f1a', color: '#dbe7ff' }}>
-      <aside style={{ width: '320px', borderRight: '1px solid #1f2c46', display: 'flex', flexDirection: 'column', background: 'linear-gradient(180deg, #0d1628 0%, #0b1220 100%)' }}>
-        <div style={{ padding: '1rem', borderBottom: '1px solid #1f2c46', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+      <aside style={{ width: '340px', borderRight: '1px solid #1f2c46', display: 'flex', flexDirection: 'column', background: 'linear-gradient(180deg, #0d1628 0%, #0b1220 100%)' }}>
+        <div style={{ padding: '1rem', borderBottom: '1px solid #1f2c46', display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', color: '#e4edff', textDecoration: 'none', fontWeight: 700 }}>
               <ArrowLeft size={16} />
@@ -218,9 +218,43 @@ export default function EditorPage() {
             </Link>
             <span style={{ fontSize: '0.75rem', color: '#7e95bf', border: '1px solid #2d4064', borderRadius: 999, padding: '0.2rem 0.55rem' }}>Editor v2</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: errors.length ? '#fca5a5' : '#89d18a' }}>
+
+          <div style={{ border: '1px solid #273958', borderRadius: 18, padding: '0.95rem', background: 'linear-gradient(180deg, rgba(21,33,58,0.92) 0%, rgba(11,20,37,0.96) 100%)' }}>
+            <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.18em', color: '#8fb1ff', marginBottom: '0.55rem' }}>
+              Workspace
+            </div>
+            <div style={{ fontWeight: 700, color: '#f5f9ff', fontSize: '1rem' }}>
+              Build, preview, and export from one editor shell
+            </div>
+            <div style={{ marginTop: '0.45rem', fontSize: '0.82rem', color: '#9ab0d7', lineHeight: 1.5 }}>
+              Keep the script on the left, monitor the render preset, and pull assets into the draft without leaving the page.
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', marginTop: '0.8rem' }}>
+              {[
+                `Output ${draftRenderConfig.outputFilename}`,
+                `Preset ${draftRenderConfig.resolutionKey}`,
+                previewNeedsRefresh ? 'Preview needs refresh' : 'Preview synced',
+              ].map((item) => (
+                <span
+                  key={item}
+                  style={{
+                    fontSize: '0.68rem',
+                    color: '#cfe0ff',
+                    border: '1px solid #30476f',
+                    background: '#10192d',
+                    borderRadius: 999,
+                    padding: '0.28rem 0.55rem',
+                  }}
+                >
+                  {item}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.82rem', color: errors.length ? '#fca5a5' : '#89d18a', border: '1px solid #22314d', borderRadius: 12, padding: '0.75rem 0.8rem', background: '#0d1728' }}>
             {errors.length ? <CircleAlert size={14} /> : <CircleCheck size={14} />}
-            {errors.length ? `${errors.length} syntax issue${errors.length > 1 ? 's' : ''}` : 'Script valid'}
+            <span>{errors.length ? `${errors.length} syntax issue${errors.length > 1 ? 's' : ''}` : 'Script valid and ready to preview'}</span>
           </div>
           {session && (
             <Link href="/account" style={{ fontSize: '0.82rem', color: '#8fb1ff', textDecoration: 'none' }}>
@@ -229,29 +263,75 @@ export default function EditorPage() {
           )}
         </div>
 
-        <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="grid grid-cols-2 mx-4 mt-3" style={{ background: '#101d33', border: '1px solid #243656' }}>
-            <TabsTrigger value="editor"><Code2 className="h-3 w-3 mr-1" />Editor</TabsTrigger>
-            <TabsTrigger value="assets"><FolderOpen className="h-3 w-3 mr-1" />Assets</TabsTrigger>
-          </TabsList>
+          <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex-1 flex min-h-0 flex-col overflow-hidden">
+            <TabsList className="grid grid-cols-2 mx-4 mt-3" style={{ background: '#101d33', border: '1px solid #243656' }}>
+              <TabsTrigger value="editor"><Code2 className="h-3 w-3 mr-1" />Editor</TabsTrigger>
+              <TabsTrigger value="assets"><FolderOpen className="h-3 w-3 mr-1" />Assets</TabsTrigger>
+            </TabsList>
 
           <TabsContent value="editor" className="flex-1 overflow-auto m-0 p-4 pt-2 space-y-4">
-            <div style={{ border: '1px solid #2a3d5f', borderRadius: 12, padding: '0.9rem', background: '#0f1a2e' }}>
-              <h3 style={{ marginBottom: '0.75rem', fontSize: '0.9rem', color: '#b8ccf0' }}>Actions</h3>
-              <div style={{ display: 'grid', gap: '0.5rem' }}>
-                <Button onClick={handlePreview} variant="secondary" className="w-full" style={{ background: '#1a2d4d', color: '#dbe7ff', border: '1px solid #2f4a73' }}>
-                  <Eye className="h-4 w-4 mr-2" />
-                  {previewNeedsRefresh ? 'Refresh Preview' : 'Preview Ready'}
+            <div style={{ border: '1px solid #2a3d5f', borderRadius: 18, padding: '1rem', background: 'linear-gradient(180deg, rgba(15,26,46,0.98) 0%, rgba(10,18,31,0.96) 100%)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.85rem' }}>
+                <div>
+                  <h3 style={{ marginBottom: '0.2rem', fontSize: '0.95rem', color: '#e7efff' }}>Actions</h3>
+                  <p style={{ fontSize: '0.78rem', color: '#89a3d3', lineHeight: 1.5 }}>
+                    Refresh the preview after script changes, then export the current draft once the render preset looks right.
+                  </p>
+                </div>
+                <span style={{ fontSize: '0.68rem', color: '#8fb1ff', border: '1px solid #30476f', borderRadius: 999, padding: '0.24rem 0.5rem', background: '#10192d' }}>
+                  Core controls
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gap: '0.65rem' }}>
+                <Button
+                  onClick={handlePreview}
+                  variant="secondary"
+                  className="w-full justify-start h-auto"
+                  style={{ background: '#1a2d4d', color: '#dbe7ff', border: '1px solid #2f4a73', padding: '0.9rem 1rem' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', width: '100%' }}>
+                    <Eye className="h-4 w-4" style={{ marginTop: 2 }} />
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>{previewNeedsRefresh ? 'Refresh Preview' : 'Preview Ready'}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#9eb6df', marginTop: '0.2rem' }}>
+                        Rebuild the player using the latest valid VidScript and render preset.
+                      </div>
+                    </div>
+                  </div>
                 </Button>
-                <Button onClick={handleExport} className="w-full" disabled={rendering} style={{ background: '#2457ff', color: 'white' }}>
-                  <Download className="h-4 w-4 mr-2" />
-                  {rendering ? `Rendering ${renderProgress}%...` : 'Export MP4'}
+
+                <Button
+                  onClick={handleExport}
+                  className="w-full justify-start h-auto"
+                  disabled={rendering}
+                  style={{ background: 'linear-gradient(135deg, #2457ff, #3f8cff)', color: 'white', padding: '0.9rem 1rem' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', width: '100%' }}>
+                    <Download className="h-4 w-4" style={{ marginTop: 2 }} />
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>{rendering ? `Rendering ${renderProgress}%...` : 'Export MP4'}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#dbeafe', marginTop: '0.2rem' }}>
+                        Create the downloadable render using the current output file name and resolution.
+                      </div>
+                    </div>
+                  </div>
                 </Button>
               </div>
-              <div style={{ marginTop: '0.75rem', fontSize: '0.78rem', color: '#8aa4d4' }}>
-                Output: {draftRenderConfig.outputFilename} · {draftRenderConfig.resolutionKey}
+
+              <div style={{ marginTop: '0.9rem', padding: '0.8rem', borderRadius: 14, border: '1px solid #22314d', background: '#0d1728' }}>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.18em', color: '#7f97c6', marginBottom: '0.35rem' }}>
+                  Render target
+                </div>
+                <div style={{ fontSize: '0.86rem', color: '#deebff', fontWeight: 600 }}>
+                  {draftRenderConfig.outputFilename}
+                </div>
+                <div style={{ marginTop: '0.2rem', fontSize: '0.76rem', color: '#8aa4d4' }}>
+                  {draftRenderConfig.resolutionKey} · {previewNeedsRefresh ? 'Preview update pending' : 'Preview in sync'}
+                </div>
               </div>
-              <div style={{ marginTop: '0.35rem' }}>
+
+              <div style={{ marginTop: '0.75rem' }}>
                 <Link
                   href={previewUrl}
                   target="_blank"
@@ -261,6 +341,7 @@ export default function EditorPage() {
                   Open render preview page
                 </Link>
               </div>
+
               {rendering && (
                 <div style={{ marginTop: '0.75rem' }}>
                   <div style={{ height: 8, borderRadius: 999, background: '#1b2a45', overflow: 'hidden' }}>
@@ -270,8 +351,17 @@ export default function EditorPage() {
               )}
             </div>
 
+            <div style={{ border: '1px solid #22314d', borderRadius: 16, padding: '0.9rem', background: '#0d1728' }}>
+              <div style={{ fontSize: '0.78rem', color: '#9bb2dc', marginBottom: '0.55rem' }}>Working notes</div>
+              <div style={{ display: 'grid', gap: '0.45rem', fontSize: '0.78rem', color: '#bfd0f2' }}>
+                <div>Insert local or sample assets from the Assets tab to scaffold new `input` lines.</div>
+                <div>Use the output filename and resolution above as the source of truth for export.</div>
+                <div>Keep the preview refreshed before exporting so the render matches the latest script.</div>
+              </div>
+            </div>
+
             {placeholders.length > 0 && (
-              <div style={{ border: '1px solid #2a3d5f', borderRadius: 12, padding: '0.9rem', background: '#0f1a2e' }}>
+              <div style={{ border: '1px solid #2a3d5f', borderRadius: 16, padding: '0.9rem', background: '#0f1a2e' }}>
                 <h3 style={{ marginBottom: '0.5rem', fontSize: '0.9rem', color: '#b8ccf0' }}>Placeholders</h3>
                 {placeholders.map((p) => (
                   <div key={p} style={{ fontSize: '0.82rem', padding: '0.25rem 0', color: '#9db5df' }}>
@@ -282,8 +372,10 @@ export default function EditorPage() {
             )}
           </TabsContent>
 
-          <TabsContent value="assets" className="flex-1 overflow-hidden m-0 p-0">
-            <AssetLibrary onInsertAsset={handleInsertAsset} />
+          <TabsContent value="assets" className="m-0 flex-1 min-h-0 overflow-hidden px-3 pb-3 pt-2">
+            <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-slate-800/80 bg-[linear-gradient(180deg,rgba(10,16,29,0.96),rgba(7,11,20,0.98))] shadow-[inset_0_1px_0_rgba(148,163,184,0.06)]">
+              <AssetLibrary onInsertAsset={handleInsertAsset} />
+            </div>
           </TabsContent>
         </Tabs>
       </aside>
