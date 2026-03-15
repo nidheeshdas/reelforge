@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 const isDev = process.env.NODE_ENV === 'development';
 
 export default isDev 
-  ? function middleware() {
+  ? function proxy() {
       return NextResponse.next();
     }
   : withAuth({

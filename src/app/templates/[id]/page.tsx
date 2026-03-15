@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -35,7 +35,8 @@ output to "wedding-reel.mp4", resolution: 1080x1920`,
   },
 };
 
-export default function TemplateDetailPage({ params }: { params: { id: string } }) {
+export default function TemplateDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const router = useRouter();
   const template = TEMPLATES[params.id];
   const [values, setValues] = useState<Record<string, any>>({});

@@ -5,8 +5,9 @@ import { getGitHubService } from '@/lib/integrations/github';
 
 export async function GET(
   request: Request,
-  { params }: { params: { owner: string; repo: string } }
+  props: { params: Promise<{ owner: string; repo: string }> }
 ) {
+  const params = await props.params;
   try {
     const session = await getServerSession(authOptions);
     
