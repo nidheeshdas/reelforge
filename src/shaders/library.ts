@@ -12,11 +12,12 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
       uIntensity: { value: 0.8 },
     },
     fragmentShader: `
+      uniform sampler2D tDiffuse;
       uniform float uIntensity;
       varying vec2 vUv;
       
       void main() {
-        vec4 color = texture2D(uTexture, vUv);
+        vec4 color = texture2D(tDiffuse, vUv);
         float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
         vec3 mono = vec3(gray);
         gl_FragColor = vec4(mix(color.rgb, mono, uIntensity), color.a);
@@ -29,11 +30,12 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
       uIntensity: { value: 0.6 },
     },
     fragmentShader: `
+      uniform sampler2D tDiffuse;
       uniform float uIntensity;
       varying vec2 vUv;
       
       void main() {
-        vec4 color = texture2D(uTexture, vUv);
+        vec4 color = texture2D(tDiffuse, vUv);
         vec3 sepia = vec3(
           dot(color.rgb, vec3(0.393, 0.769, 0.189)),
           dot(color.rgb, vec3(0.349, 0.686, 0.168)),
@@ -50,6 +52,7 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
       uResolution: { value: { x: 1920, y: 1080 } },
     },
     fragmentShader: `
+      uniform sampler2D tDiffuse;
       uniform float uRadius;
       uniform vec2 uResolution;
       varying vec2 vUv;
@@ -62,7 +65,7 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
         for (float x = -4.0; x <= 4.0; x += 1.0) {
           for (float y = -4.0; y <= 4.0; y += 1.0) {
             vec2 offset = vec2(x, y) * radius / uResolution;
-            color += texture2D(uTexture, vUv + offset);
+            color += texture2D(tDiffuse, vUv + offset);
             total += 1.0;
           }
         }
@@ -77,6 +80,7 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
       uOffset: { value: 0.02 },
     },
     fragmentShader: `
+      uniform sampler2D tDiffuse;
       uniform float uOffset;
       varying vec2 vUv;
       
@@ -85,9 +89,9 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
         float d = length(dir);
         vec2 offset = dir * d * uOffset;
         
-        float r = texture2D(uTexture, vUv + offset).r;
-        float g = texture2D(uTexture, vUv).g;
-        float b = texture2D(uTexture, vUv - offset).b;
+        float r = texture2D(tDiffuse, vUv + offset).r;
+        float g = texture2D(tDiffuse, vUv).g;
+        float b = texture2D(tDiffuse, vUv - offset).b;
         
         gl_FragColor = vec4(r, g, b, 1.0);
       }
@@ -100,6 +104,7 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
       uIntensity: { value: 0.5 },
     },
     fragmentShader: `
+      uniform sampler2D tDiffuse;
       uniform float uTime;
       uniform float uIntensity;
       varying vec2 vUv;
@@ -120,7 +125,7 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
           uv.y = 1.0 - uv.y;
         }
         
-        gl_FragColor = texture2D(uTexture, uv);
+        gl_FragColor = texture2D(tDiffuse, uv);
       }
     `,
   },
@@ -130,11 +135,12 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
       uIntensity: { value: 0.5 },
     },
     fragmentShader: `
+      uniform sampler2D tDiffuse;
       uniform float uIntensity;
       varying vec2 vUv;
       
       void main() {
-        vec4 color = texture2D(uTexture, vUv);
+        vec4 color = texture2D(tDiffuse, vUv);
         vec2 uv = vUv * (1.0 - vUv.yx);
         float vig = uv.x * uv.y * 15.0;
         vig = pow(vig, uIntensity * 0.5);
@@ -149,11 +155,12 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
       uAmount: { value: 1.2 },
     },
     fragmentShader: `
+      uniform sampler2D tDiffuse;
       uniform float uAmount;
       varying vec2 vUv;
       
       void main() {
-        vec4 color = texture2D(uTexture, vUv);
+        vec4 color = texture2D(tDiffuse, vUv);
         color.rgb = (color.rgb - 0.5) * uAmount + 0.5;
         gl_FragColor = color;
       }
@@ -165,11 +172,12 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
       uAmount: { value: 1.5 },
     },
     fragmentShader: `
+      uniform sampler2D tDiffuse;
       uniform float uAmount;
       varying vec2 vUv;
       
       void main() {
-        vec4 color = texture2D(uTexture, vUv);
+        vec4 color = texture2D(tDiffuse, vUv);
         float gray = dot(color.rgb, vec3(0.299, 0.587, 0.114));
         color.rgb = mix(vec3(gray), color.rgb, uAmount);
         gl_FragColor = color;
@@ -182,11 +190,12 @@ export const builtInShaders: Record<string, ShaderDefinition> = {
       uAmount: { value: 0.1 },
     },
     fragmentShader: `
+      uniform sampler2D tDiffuse;
       uniform float uAmount;
       varying vec2 vUv;
       
       void main() {
-        vec4 color = texture2D(uTexture, vUv);
+        vec4 color = texture2D(tDiffuse, vUv);
         color.rgb += uAmount;
         gl_FragColor = color;
       }

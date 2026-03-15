@@ -3,7 +3,8 @@ import { parse } from './grammar/parser.js';
 
 export function parseVidscript(code: string): ParserResult {
   try {
-    const ast = parse(code);
+    const normalizedCode = code.endsWith('\n') ? code : `${code}\n`;
+    const ast = parse(normalizedCode);
     return { ast, errors: [] };
   } catch (error: unknown) {
     const err = error as Error & { location?: { start: { line: number; column: number }; end: { line: number; column: number } } };

@@ -1,15 +1,15 @@
-import { test, expect, describe } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { parseVidscript, validateVidscript, extractPlaceholders, fillPlaceholders } from '../src/parser';
 
-describe('Parser', () => {
+test.describe('Parser', () => {
   test('should parse valid input statement', () => {
     const result = parseVidscript('input video = "test.mp4"');
     expect(result.errors).toHaveLength(0);
     expect(result.ast?.statements).toHaveLength(1);
-    expect(result.ast?.statements[0]).toEqual({
+    expect(result.ast?.statements[0]).toMatchObject({
       type: 'Input',
       name: 'video',
-      path: 'test.mp4'
+      path: 'test.mp4',
     });
   });
 
@@ -17,27 +17,57 @@ describe('Parser', () => {
     const result = parseVidscript('[0 - 10] = video');
     expect(result.errors).toHaveLength(0);
     expect(result.ast?.statements).toHaveLength(1);
-    expect(result.ast?.statements[0].type).toBe('TimeBlock');
+    expect(result.ast?.statements[0]).toMatchObject({
+      type: 'TimeBlock',
+      start: { value: 0 },
+      end: { value: 10 },
+      instructions: ['video'],
+    });
   });
 
   test('should parse filter', () => {
     const result = parseVidscript('[0 - 10] = filter "sepia", intensity: 0.5');
     expect(result.errors).toHaveLength(0);
-    expect(result.ast?.statements[0].type).toBe('Filter');
-    expect(result.ast?.statements[0].name).toBe('sepia');
+    expect(result.ast?.statements[0]).toMatchObject({
+      type: 'TimeBlock',
+      instructions: [
+        {
+          type: 'Filter',
+          name: 'sepia',
+          params: { intensity: 0.5 },
+        },
+      ],
+    });
   });
 
   test('should parse text instruction', () => {
     const result = parseVidscript('[2 - 5] = text "Hello World", style: title');
     expect(result.errors).toHaveLength(0);
-    expect(result.ast?.statements[0].type).toBe('Text');
-    expect(result.ast?.statements[0].content).toBe('Hello World');
+    expect(result.ast?.statements[0]).toMatchObject({
+      type: 'TimeBlock',
+      instructions: [
+        {
+          type: 'Text',
+          content: 'Hello World',
+          params: { style: 'title' },
+        },
+      ],
+    });
   });
 
   test('should parse audio instruction', () => {
     const result = parseVidscript('[0 - 10] = audio music, volume: 0.7');
     expect(result.errors).toHaveLength(0);
-    expect(result.ast?.statements[0].type).toBe('Audio');
+    expect(result.ast?.statements[0]).toMatchObject({
+      type: 'TimeBlock',
+      instructions: [
+        {
+          type: 'Audio',
+          name: 'music',
+          params: { volume: 0.7 },
+        },
+      ],
+    });
   });
 
   test('should parse output statement', () => {
@@ -79,7 +109,7 @@ describe('Parser', () => {
   test('should parse multiple time formats', () => {
     const result1 = parseVidscript('[0 - 10] = video');
     const result2 = parseVidscript('[0s - 10s] = video');
-    const result3 = parseVidscript('[0:00 - 0:10] = video');
+    const result3 = parseVidscript('[frame 0 - frame 30] = video');
     
     expect(result1.errors).toHaveLength(0);
     expect(result2.errors).toHaveLength(0);
@@ -89,6 +119,15 @@ describe('Parser', () => {
   test('should parse method calls', () => {
     const result = parseVidscript('[0 - 10] = video.Trim(0, 30)');
     expect(result.errors).toHaveLength(0);
-    expect(result.ast?.statements[0].type).toBe('MethodCall');
+    expect(result.ast?.statements[0]).toMatchObject({
+      type: 'TimeBlock',
+      instructions: [
+        {
+          type: 'VideoTrim',
+          target: 'video',
+          params: {},
+        },
+      ],
+    });
   });
 });

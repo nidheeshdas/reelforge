@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
-import { builtInShaders, getShader, listShaders } from '../src/shaders/library';
+import { getShader, listShaders } from '../src/shaders/library';
 
-describe('Shader Library', () => {
+test.describe('Shader Library', () => {
   test('should have all built-in shaders', () => {
     const shaders = listShaders();
     expect(shaders).toContain('monochrome');

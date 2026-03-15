@@ -2,24 +2,25 @@
   function makeNode(type, props) {
     return { type, ...props, loc: location() };
   }
-  
-  function parseTime(str) {
-    const s = str.replace(/^\s+|\s+$/g, '');
-    if (s.includes(':')) {
-      const parts = s.split(':').map(p => parseInt(p, 10));
-      if (parts.length === 2) return parts[0] * 60 + parts[1];
-      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+
+  function toObjectParams(head, tail) {
+    const result = {};
+    const entries = [head, ...tail.map((item) => item[3])];
+
+    for (const entry of entries) {
+      if (entry && typeof entry === 'object' && entry.key) {
+        result[entry.key] = entry.value;
+      }
     }
-    if (s.endsWith('ms')) return parseFloat(s) / 1000;
-    if (s.endsWith('s')) return parseFloat(s.slice(0, -1));
-    return parseFloat(s);
+
+    return result;
   }
 }
 
 Parser
-  = _ statements:(Statement __)* {
-      var filtered = [];
-      for (var i = 0; i < statements.length; i++) {
+  = statements:(Statement __)* {
+      const filtered = [];
+      for (let i = 0; i < statements.length; i++) {
         if (statements[i][0] !== null) filtered.push(statements[i][0]);
       }
       return { type: 'Program', statements: filtered };
@@ -28,7 +29,7 @@ Parser
 __
   = [ \t\r\n]+
 
-_
+_ "whitespace"
   = [ \t\r\n]*
 
 Statement
@@ -46,55 +47,67 @@ Comment
   / "/*" (!"*/" .)* "*/" { return null; }
 
 EmptyStatement
-  = __ { return null; }
+  = _ { return null; }
 
 ImportStatement
-  = "import" __ "shader" __ name:Identifier __ "from" __ path:String {
+  = "import" _ "shader" _ name:Identifier _ "from" _ path:String {
       return { type: 'ImportShader', name, path };
     }
 
 InputStatement
-  = "input" __ name:Identifier __ "=" __ path:String {
+  = "input" _ name:Identifier _ "=" _ path:String {
       return { type: 'Input', name, path };
     }
 
 VariableAssignment
-  = "let" __ name:Identifier __ "=" __ value:Expression {
+  = "let" _ name:Identifier _ "=" _ value:Expression {
       return { type: 'Variable', name, value };
     }
 
 OutputStatement
-  = "output" __ "to" __ path:String __ ","? __ options:OutputOptions? {
-      return { type: 'Output', path, options: options || {} };
+  = "output" _ "to" _ path:String _ options:(_ "," _ OutputOptions)? {
+      return { type: 'Output', path, options: options ? options[3] : {} };
     }
 
 OutputOptions
-  = head:OutputOption tail:(__ "," __ OutputOption)* {
-      return tail.reduce(function(acc, item) { return { ...acc, [item[3].key]: item[3].value }; }, head);
+  = head:OutputOption tail:(_ "," _ OutputOption)* {
+      const acc = head;
+      for (let i = 0; i < tail.length; i++) {
+        const item = tail[i][3];
+        acc[item.key] = item.value;
+      }
+      return acc;
     }
 
 OutputOption
-  = key:("format" / "resolution" / "codec" / "fps" / "bitrate") __ ":" __ value:(String / Identifier / Number) {
+  = "resolution" _ ":" _ value:Resolution {
+      return { key: 'resolution', value: String(value) };
+    }
+  / key:("format" / "codec" / "fps" / "bitrate") _ ":" _ value:(String / Identifier / Number) {
       return { key, value: String(value) };
     }
 
+Resolution
+  = width:Number "x" height:Number { return width + "x" + height; }
+  / num:Number
+
 TimeBlock
-  = "[" __ start:TimeSpec __ "-" __ end:TimeSpec "]" __ "=" __ instructions:InstructionList {
+  = "[" _ start:TimeSpec _ "-" _ end:TimeSpec "]" _ "=" _ instructions:InstructionList {
       return { type: 'TimeBlock', start, end, instructions };
     }
-  / "[" __ start:TimeSpec __ "-" __ "end" "]" __ "=" __ instructions:InstructionList {
+  / "[" _ start:TimeSpec _ "-" _ "end" "]" _ "=" _ instructions:InstructionList {
       return { type: 'TimeBlock', start, end: { value: Infinity, raw: 'end' }, instructions };
     }
 
 TimeSpec
-  = value:TimeValue { return { value, raw: text(), loc: location() }; }
+  = value:TimeValue { return { value, raw: String(value) }; }
 
 TimeValue
-  = num:Number __ unit:TimeUnit? {
+  = num:Number unit:TimeUnit? {
       const unitMap = { s: 1, ms: 0.001, f: 1/30 };
       return num * (unitMap[unit] || 1);
     }
-  / "frame" __ num:Number { return num / 30; }
+  / "frame" _ num:Number { return num / 30; }
   / "0:" min:Number ":" sec:Number { return min * 60 + sec; }
   / hour:Number ":" min:Number ":" sec:Number { return hour * 3600 + min * 60 + sec; }
 
@@ -102,8 +115,8 @@ TimeUnit
   = "s" / "ms" / "f" / "sec" / "seconds"
 
 InstructionList
-  = head:Instruction tail:(__ "\n" __ Instruction)* {
-      return [head, ...tail.map(function(t) { return t[3]; })];
+  = head:Instruction tail:(_ "\n" _ Instruction)* {
+      return [head, ...tail.map(t => t[3])];
     }
 
 Instruction
@@ -116,97 +129,90 @@ Instruction
   / Expression
 
 VideoInstruction
-  = target:Identifier "." "Trim" __ "(" __ params:CallParams __ ")" {
-      return { type: 'VideoTrim', target, params };
+  = target:Identifier "." "Trim" _ "(" _ start:Number _ "," _ end:Number _ ")" {
+      return { type: 'VideoTrim', target, params: { start, end } };
     }
-  / target:Identifier "." "Resize" __ "(" __ width:Number __ "," __ height:Number __ ")" {
+  / target:Identifier "." "Trim" _ "(" _ start:Number _ ")" {
+      return { type: 'VideoTrim', target, params: { start } };
+    }
+  / target:Identifier "." "Resize" _ "(" _ width:Number _ "," _ height:Number _ ")" {
       return { type: 'VideoResize', target, width, height };
     }
-  / target:Identifier "." "Speed" __ "(" __ factor:Number __ ")" {
+  / target:Identifier "." "Speed" _ "(" _ factor:Number _ ")" {
       return { type: 'VideoSpeed', target, factor };
     }
-  / target:Identifier "." "Loop" __ "(" __ count:Number __ ")" {
+  / target:Identifier "." "Loop" _ "(" _ count:Number _ ")" {
       return { type: 'VideoLoop', target, count };
     }
-  / target:Identifier "." "Opacity" __ "(" __ value:Number __ "," __ duration:Number __ ")" {
+  / target:Identifier "." "Opacity" _ "(" _ value:Number _ "," _ duration:Number _ ")" {
       return { type: 'VideoOpacity', target, value, duration };
     }
 
 AudioInstruction
-  = "audio" __ name:Identifier __ "," __ params:AudioParams {
+  = "audio" _ name:Identifier _ "," _ params:AudioParams {
       return { type: 'Audio', name, params };
     }
 
 AudioParams
-  = head:AudioParam tail:(__ "," __ AudioParam)* {
-      return tail.reduce(function(acc, item) { return { ...acc, [item[3].key]: item[3].value }; }, head);
-    }
+  = head:AudioParam tail:(_ "," _ AudioParam)* { return toObjectParams(head, tail); }
 
 AudioParam
-  = key:("volume" / "fade_in" / "fade_out") __ ":" __ value:Number {
+  = key:("volume" / "fade_in" / "fade_out") _ ":" _ value:TimeValue {
       return { key, value };
     }
 
 TextInstruction
-  = "text" __ content:String __ "," __ params:TextParams {
+  = "text" _ content:String _ "," _ params:TextParams {
       return { type: 'Text', content, params };
     }
 
 TextParams
-  = head:TextParam tail:(__ "," __ TextParam)* {
-      return tail.reduce(function(acc, item) { return { ...acc, [item[3].key]: item[3].value }; }, head);
-    }
+  = head:TextParam tail:(_ "," _ TextParam)* { return toObjectParams(head, tail); }
 
 TextParam
-  = key:("style" / "position" / "color" / "stroke" / "stroke_width" / "font" / "size" / "animation") __ ":" __ value:(String / Identifier) {
+  = key:("style" / "position" / "color" / "stroke" / "stroke_width" / "font" / "size" / "animation") _ ":" _ value:(String / Identifier) {
       return { key, value };
     }
 
 FilterInstruction
-  = "filter" __ name:String __ "," __ params:FilterParams {
+  = "filter" _ name:String _ "," _ params:FilterParams {
       return { type: 'Filter', name, params };
     }
 
 FilterParams
-  = head:FilterParam tail:(__ "," __ FilterParam)* {
-      return tail.reduce(function(acc, item) { return { ...acc, [item[3].key]: item[3].value }; }, head);
-    }
+  = head:FilterParam tail:(_ "," _ FilterParam)* { return toObjectParams(head, tail); }
 
 FilterParam
-  = key:Identifier __ ":" __ value:Number {
+  = key:Identifier _ ":" _ value:Number {
       return { key, value };
     }
 
 ShaderInstruction
-  = "shader" __ name:String __ "," __ params:ShaderParams {
+  = "shader" _ name:String _ "," _ params:ShaderParams {
       return { type: 'Shader', name, params };
     }
 
 ShaderParams
-  = head:ShaderParam tail:(__ "," __ ShaderParam)* {
-      return tail.reduce(function(acc, item) { return { ...acc, [item[3].key]: item[3].value }; }, head);
-    }
+  = head:ShaderParam tail:(_ "," _ ShaderParam)* { return toObjectParams(head, tail); }
 
 ShaderParam
-  = key:Identifier __ ":" __ value:(Number / String) {
+  = key:Identifier _ ":" _ value:(Number / String) {
       return { key, value };
     }
 
 CompositeInstruction
-  = target:Identifier "." "Overlay" __ "(" __ overlay:Identifier __ "," __ params:CompositeParams __ ")" {
+  = target:Identifier "." "Overlay" _ "(" _ overlay:Identifier _ "," _ params:CompositeParams _ ")" {
       return { type: 'Overlay', target, overlay, params };
     }
-  / target:Identifier "." "Composite" __ "(" __ other:Identifier __ "," __ params:CompositeParams __ ")" {
+  / target:Identifier "." "Composite" _ "(" _ other:Identifier _ "," _ params:CompositeParams _ ")" {
       return { type: 'Composite', target, other, params };
     }
 
 CompositeParams
-  = head:CompositeParam tail:(__ "," __ CompositeParam)* {
-      return tail.reduce(function(acc, item) { return { ...acc, [item[3].key]: item[3].value }; }, head);
-    }
+  = head:CompositeParam tail:(_ "," _ CompositeParam)* { return toObjectParams(head, tail); }
 
 CompositeParam
-  = key:("x" / "y" / "mode" / "opacity") __ ":" __ value:(Number / String / Identifier) {
+  = key:("x" / "y" / "mode" / "opacity") _ ":" _ value:(Number / String / Identifier) {
       return { key, value };
     }
 
@@ -214,7 +220,7 @@ Expression
   = BinaryExpression
 
 BinaryExpression
-  = left:AddExpr __ op:("+" / "-") __ right:BinaryExpression {
+  = left:AddExpr _ op:("+" / "-") _ right:BinaryExpression {
       return { type: 'Binary', op, left, right };
     }
   / AddExpr
@@ -224,34 +230,32 @@ AddExpr
   / Identifier
   / String
   / Number
-  / "(" __ expr:Expression __ ")" { return expr; }
+  / "(" _ expr:Expression _ ")" { return expr; }
 
 CallExpression
-  = name:Identifier __ "(" __ params:CallParams? __ ")" {
+  = name:Identifier _ "(" _ params:CallParams? _ ")" {
       return { type: 'Call', name, params: params || [] };
     }
 
 CallParams
-  = head:ParamValue tail:(__ "," __ ParamValue)* {
-      var acc = {};
+  = head:ParamValue tail:(_ "," _ ParamValue)* {
+      let acc = {};
       if (head.key) {
         acc[head.key] = head.value;
       } else {
         acc = head;
       }
-      for (var i = 0; i < tail.length; i++) {
-        var item = tail[i][3];
+      for (let i = 0; i < tail.length; i++) {
+        const item = tail[i][3];
         if (typeof item === 'object' && item.key) {
           acc[item.key] = item.value;
-        } else {
-          // ignore
         }
       }
       return acc;
     }
 
 ParamValue
-  = key:Identifier __ ":" __ value:Value { return { key, value }; }
+  = key:Identifier _ ":" _ value:Value { return { key, value }; }
   / Value
 
 Value
@@ -261,33 +265,33 @@ Value
   / Boolean
 
 FunctionDef
-  = "fn" __ name:Identifier __ "(" __ params:FunctionParams? __ ")" __ "{" __ body:(Statement __)* __ "}" {
-      var filtered = [];
-      for (var i = 0; i < body.length; i++) {
+  = "fn" _ name:Identifier _ "(" _ params:FunctionParams? _ ")" _ "{" _ body:(Statement __)* _ "}" {
+      const filtered = [];
+      for (let i = 0; i < body.length; i++) {
         if (body[i][0] !== null) filtered.push(body[i][0]);
       }
       return { type: 'Function', name, params: params || [], body: filtered };
     }
 
 FunctionParams
-  = head:FunctionParam tail:(__ "," __ FunctionParam)* {
-      return [head, ...tail.map(function(t) { return t[3]; })];
+  = head:FunctionParam tail:(_ "," _ FunctionParam)* {
+      return [head, ...tail.map(t => t[3])];
     }
 
 FunctionParam
-  = name:Identifier __ ":" __ type:Identifier def:(__ "=" __ Value)? {
+  = name:Identifier _ ":" _ type:Identifier def:(_ "=" _ Value)? {
       return { name, type, default: def ? def[3] : null };
     }
 
-Identifier
-  = name:[a-zA-Z_][a-zA-Z0-9_]* { return name.join(''); }
+Identifier "identifier"
+  = name:$([a-zA-Z_][a-zA-Z0-9_]*) { return name; }
 
-Number
-  = num:([0-9]+ ("." [0-9]+)?) { return parseFloat(num.join('')); }
+Number "number"
+  = num:$([0-9]+ ("." [0-9]+)?) { return parseFloat(num); }
 
-String
-  = '"' chars:([^"\\] / "\\" .)* '"' { return chars.join(''); }
-  / "'" chars:([^'\\] / "\\" .)* "'" { return chars.join(''); }
+String "string"
+  = '"' chars:$([^"\\] / "\\" .)* '"' { return chars; }
+  / "'" chars:$([^'\\] / "\\" .)* "'" { return chars; }
 
 Boolean
   = "true" { return true; }

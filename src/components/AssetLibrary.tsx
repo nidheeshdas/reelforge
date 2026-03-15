@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -34,7 +34,7 @@ interface AssetLibraryProps {
 }
 
 export function AssetLibrary({ onInsertAsset }: AssetLibraryProps) {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -46,17 +46,38 @@ export function AssetLibrary({ onInsertAsset }: AssetLibraryProps) {
   const loadAssets = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/assets');
+      let response;
+      if (status === 'unauthenticated') {
+        response = await fetch('/api/assets/samples');
+      } else {
+        response = await fetch('/api/assets');
+      }
+      
       if (response.ok) {
         const data = await response.json();
         setAssets(data.assets || []);
+      } else if (response.status === 401) {
+        const sampleResponse = await fetch('/api/assets/samples');
+        if (sampleResponse.ok) {
+          const sampleData = await sampleResponse.json();
+          setAssets(sampleData.assets || []);
+        } else {
+          setAssets([]);
+        }
       }
     } catch (error) {
       console.error('Failed to load assets:', error);
+      setAssets([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [status]);
+
+  useEffect(() => {
+    if (status !== 'loading') {
+      loadAssets();
+    }
+  }, [status, loadAssets]);
 
   const loadConnections = useCallback(async () => {
     try {
@@ -170,8 +191,18 @@ export function AssetLibrary({ onInsertAsset }: AssetLibraryProps) {
     return <FileText className="h-4 w-4 text-gray-500" />;
   };
 
-  const renderAssetCard = (asset: any, source?: string) => (
-    <Card key={asset.id} className="cursor-pointer hover:shadow-md transition-shadow">
+  const renderAssetCard = (asset: any, source?: string) => {
+    const assetPath = asset.filepath || (asset.filename ? `/uploads/${asset.filename}` : '');
+    return (
+    <Card
+      key={asset.id}
+      className="cursor-pointer hover:shadow-md transition-shadow"
+      onClick={() => {
+        if (assetPath && onInsertAsset) {
+          onInsertAsset(assetPath);
+        }
+      }}
+    >
       <CardContent className="p-3">
         <div className="flex items-start gap-3">
           {getFileIcon(asset.fileType || asset.mimeType)}
@@ -196,16 +227,48 @@ export function AssetLibrary({ onInsertAsset }: AssetLibraryProps) {
               <Trash2 className="h-3 w-3" />
             </Button>
           )}
+          {onInsertAsset && assetPath && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                onInsertAsset(assetPath);
+              }}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Insert
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
   );
+  };
 
   if (!session) {
     return (
-      <div className="p-4 text-center">
-        <p className="text-gray-500 mb-4">Sign in to manage your assets</p>
-        <Button onClick={() => signIn()}>Sign In</Button>
+      <div className="p-4">
+        <div className="mb-4 text-center">
+          <p className="text-gray-500 mb-4">Sign in to upload and manage your assets</p>
+          <Button onClick={() => signIn()}>Sign In</Button>
+        </div>
+        
+        <div className="border-t pt-4">
+          <h4 className="text-sm font-medium mb-3">Sample Assets</h4>
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+            </div>
+          ) : assets.length > 0 ? (
+            <div className="space-y-2">
+              {assets.map(asset => renderAssetCard(asset, 'samples'))}
+            </div>
+          ) : (
+            <p className="text-center text-gray-500 py-8 text-sm">No sample assets available</p>
+          )}
+        </div>
       </div>
     );
   }

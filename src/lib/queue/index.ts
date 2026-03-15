@@ -1,5 +1,5 @@
 import { Queue, Worker, Job } from 'bullmq';
-import { renderVideo } from '../../render/worker';
+import { renderWithWebGL } from '../../render/webgl-renderer';
 
 export interface RenderJobData {
   renderId: number;
@@ -7,6 +7,12 @@ export interface RenderJobData {
   resolution: string;
   userId: number;
 }
+
+const RESOLUTIONS: Record<string, { width: number; height: number }> = {
+  '1080x1920': { width: 1080, height: 1920 },
+  '1080x1080': { width: 1080, height: 1080 },
+  '1920x1080': { width: 1920, height: 1080 },
+};
 
 const connection = {
   host: process.env.REDIS_HOST || 'localhost',
@@ -35,10 +41,10 @@ export function startRenderWorker() {
       console.log(`Starting render ${renderId} for user ${userId}`);
       
       try {
-        await renderVideo({
+        await renderWithWebGL({
           renderId,
           vidscript,
-          resolution,
+          resolution: RESOLUTIONS[resolution] || RESOLUTIONS['1080x1920'],
           onProgress: (progress: number) => {
             job.updateProgress(progress);
           },

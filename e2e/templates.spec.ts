@@ -18,7 +18,7 @@ test.describe('Templates Page', () => {
 
   test('should navigate to template detail', async ({ page }) => {
     await page.goto('/templates');
-    await page.click('text=Use Template >> nth=0');
+    await page.getByRole('link', { name: 'Use Template' }).first().click();
     await expect(page).toHaveURL(/\/templates\/\d+/);
     await expect(page.locator('text=Fill Placeholders')).toBeVisible();
   });
