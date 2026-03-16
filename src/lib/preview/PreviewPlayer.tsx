@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { applyCompositionState, buildComposition, type BuiltComposition } from './composition';
-import { PreviewEngine } from './engine';
+import { useCallback } from 'react';
+import type { ChangeEvent } from 'react';
+import { usePreviewRuntime } from './runtime';
 
 interface PreviewPlayerProps {
   code: string;
@@ -11,121 +11,36 @@ interface PreviewPlayerProps {
 }
 
 export function PreviewPlayer({ code, width = 360, height = 640 }: PreviewPlayerProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<PreviewEngine | null>(null);
-  const compositionRef = useRef<BuiltComposition | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(30);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [engineReady, setEngineReady] = useState(false);
+  const {
+    containerRef,
+    error,
+    isLoading,
+    isPlaying,
+    currentTime,
+    duration,
+    isReady,
+    seekTo,
+    play,
+    pause,
+  } = usePreviewRuntime({
+    code,
+    width,
+    height,
+    initialDuration: 30,
+  });
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-
-    let engine: PreviewEngine;
-    try {
-      engine = new PreviewEngine({
-        width,
-        height,
-        container: containerRef.current,
-      });
-    } catch (e) {
-      console.error('[PreviewPlayer] Failed to initialize engine', e);
-      setError(e instanceof Error ? e.message : 'Preview failed');
-      setEngineReady(false);
+  const togglePlay = useCallback(() => {
+    if (isPlaying) {
+      pause();
       return;
     }
 
-    engine.setOnTimeUpdate((time) => {
-      setCurrentTime(time);
-    });
+    play();
+  }, [isPlaying, pause, play]);
 
-    engineRef.current = engine;
-    setError(null);
-    setEngineReady(true);
-
-    return () => {
-      engine.dispose();
-      engineRef.current = null;
-      compositionRef.current = null;
-      setEngineReady(false);
-    };
-  }, [width, height]);
-
-  useEffect(() => {
-    if (!engineReady || !engineRef.current) return;
-
-    const loadPreview = async () => {
-      const engine = engineRef.current;
-      if (!engine) return;
-
-      setIsLoading(true);
-      setError(null);
-      setCurrentTime(0);
-      setIsPlaying(false);
-
-      engine.resetComposition();
-      compositionRef.current = null;
-
-      try {
-        const built = await buildComposition(engine, code, width, height);
-        compositionRef.current = built;
-        engine.setCompositionDuration(built.duration);
-        engine.setFrameUpdater((time) => {
-          const activeEngine = engineRef.current;
-          const activeComposition = compositionRef.current;
-          if (!activeEngine || !activeComposition) return;
-          applyCompositionState(activeEngine, activeComposition, time);
-        });
-        await engine.seekTo(0);
-        setDuration(built.duration);
-        setCurrentTime(0);
-        setIsLoading(false);
-      } catch (e) {
-        console.error('[PreviewPlayer] Failed to load composition', e);
-        setError(e instanceof Error ? e.message : 'Preview failed');
-        setIsLoading(false);
-      }
-    };
-
-    void loadPreview();
-  }, [code, width, height, engineReady]);
-
-  useEffect(() => {
-    if (!engineReady) {
-      setIsPlaying(false);
-    }
-  }, [engineReady]);
-
-  useEffect(() => {
-    if (currentTime >= duration) {
-      setIsPlaying(false);
-    }
-  }, [currentTime, duration]);
-
-  const togglePlay = useCallback(() => {
-    if (!engineRef.current) return;
-
-    if (isPlaying) {
-      engineRef.current.pause();
-    } else {
-      engineRef.current.play();
-    }
-
-    console.log('[PreviewPlayer] Toggle play', { nextIsPlaying: !isPlaying, currentTime });
-    setIsPlaying(!isPlaying);
-  }, [isPlaying, currentTime]);
-
-  const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const time = parseFloat(e.target.value);
-    console.log('[PreviewPlayer] Seek', { time });
-    setCurrentTime(time);
-    if (engineRef.current) {
-      void engineRef.current.seekTo(time);
-    }
-  }, []);
+  const handleSeek = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    void seekTo(parseFloat(e.target.value));
+  }, [seekTo]);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -159,13 +74,15 @@ export function PreviewPlayer({ code, width = 360, height = 640 }: PreviewPlayer
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
           <button
             onClick={togglePlay}
+            disabled={!isReady}
             style={{
               background: '#3b82f6',
               border: 'none',
               color: 'white',
               padding: '0.25rem 0.75rem',
               borderRadius: '4px',
-              cursor: 'pointer',
+              cursor: isReady ? 'pointer' : 'not-allowed',
+              opacity: isReady ? 1 : 0.6,
             }}
           >
             {isPlaying ? 'Pause' : 'Play'}
@@ -182,6 +99,7 @@ export function PreviewPlayer({ code, width = 360, height = 640 }: PreviewPlayer
           step={0.1}
           value={currentTime}
           onChange={handleSeek}
+          disabled={!isReady}
           style={{ width: '100%' }}
         />
       </div>

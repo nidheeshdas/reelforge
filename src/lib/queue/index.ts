@@ -1,5 +1,5 @@
 import { Queue, Worker, Job } from 'bullmq';
-import { renderWithWebGL } from '../../render/webgl-renderer';
+import { renderHeadlessComposition } from '../../render/webgl-renderer';
 
 export interface RenderJobData {
   renderId: number;
@@ -41,7 +41,7 @@ export function startRenderWorker() {
       console.log(`Starting render ${renderId} for user ${userId}`);
       
       try {
-        await renderWithWebGL({
+        await renderHeadlessComposition({
           renderId,
           vidscript,
           resolution: RESOLUTIONS[resolution] || RESOLUTIONS['1080x1920'],

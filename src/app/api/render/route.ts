@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
-import { renderWithWebGL } from '@/render/webgl-renderer';
+import { renderHeadlessComposition } from '@/render/webgl-renderer';
 import { extractRenderScriptConfig } from '@/render/render-config';
 
 function getBaseUrl(request: NextRequest): string {
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
           },
         });
 
-        const outputPath = await renderWithWebGL({
+        const outputPath = await renderHeadlessComposition({
           renderId: render.id,
           vidscript,
           resolution: renderConfig.resolution,

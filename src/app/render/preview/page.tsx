@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { PreviewEngine } from '@/lib/preview/engine';
-import { applyCompositionState, buildComposition, type BuiltComposition } from '@/lib/preview/composition';
+import { Suspense, useCallback, useEffect, useMemo } from 'react';
+import type { ChangeEvent } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { usePreviewRuntime } from '@/lib/preview/runtime';
 
 declare global {
   interface Window {
@@ -18,118 +19,34 @@ declare global {
   }
 }
 
-export default function RenderPreviewPage() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<PreviewEngine | null>(null);
-  const compositionRef = useRef<BuiltComposition | null>(null);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [error, setError] = useState<string | null>(null);
-  const [duration, setDuration] = useState(10);
-  const [currentTime, setCurrentTime] = useState(0);
+export const dynamic = 'force-dynamic';
 
-  const seekTo = useCallback(async (time: number) => {
-    setCurrentTime(time);
-    if (engineRef.current) {
-      await engineRef.current.seekTo(time);
-      return { time: engineRef.current.getCurrentTime() };
-    }
+function RenderPreviewPageContent() {
+  const searchParams = useSearchParams();
+  const code = searchParams.get('code') || '';
+  const width = useMemo(() => parseInt(searchParams.get('width') || '1080', 10), [searchParams]);
+  const height = useMemo(() => parseInt(searchParams.get('height') || '1920', 10), [searchParams]);
+  const {
+    containerRef,
+    status,
+    error,
+    duration,
+    currentTime,
+    seekTo,
+  } = usePreviewRuntime({ code, width, height });
 
-    return { time };
-  }, []);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('code') || '';
-    const width = parseInt(params.get('width') || '1080', 10);
-    const height = parseInt(params.get('height') || '1920', 10);
-
-    let engine: PreviewEngine | null = null;
-    let mounted = true;
-
-    const init = async () => {
-      try {
-        setStatus('loading');
-
-        if (!containerRef.current) {
-          throw new Error('Container not available');
-        }
-
-        engine = new PreviewEngine({
-          width,
-          height,
-          container: containerRef.current,
-        });
-
-        engine.setOnTimeUpdate((time) => {
-          if (mounted) {
-            setCurrentTime(time);
-          }
-        });
-
-        if (!mounted) return;
-
-        engineRef.current = engine;
-        compositionRef.current = null;
-
-        try {
-          console.log('[RenderPreviewPage] Initializing composition', { width, height });
-          const built = await buildComposition(engine, code, width, height);
-          compositionRef.current = built;
-          engine.setCompositionDuration(built.duration);
-          engine.setFrameUpdater((time) => {
-            const activeEngine = engineRef.current;
-            const activeComposition = compositionRef.current;
-            if (!activeEngine || !activeComposition) return;
-            applyCompositionState(activeEngine, activeComposition, time);
-          });
-
-          if (!mounted) return;
-
-          setDuration(built.duration);
-          await engine.seekTo(0);
-          setCurrentTime(0);
-          console.log('[RenderPreviewPage] Ready', {
-            duration: built.duration,
-            overlays: built.overlays.length,
-            videoClips: built.videoClips.length,
-          });
-
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          setStatus('ready');
-        } catch (e) {
-          console.error('[RenderPreviewPage] Composition failed', e);
-          if (!mounted) return;
-          setError(e instanceof Error ? e.message : 'Preview failed');
-          setStatus('error');
-        }
-      } catch (e) {
-        console.error('[RenderPreviewPage] Init failed', e);
-        if (!mounted) return;
-        setError(e instanceof Error ? e.message : 'Preview failed');
-        setStatus('error');
-      }
-    };
-
-    void init();
-
-    return () => {
-      mounted = false;
-      if (engine) {
-        engine.dispose();
-      }
-      engineRef.current = null;
-      compositionRef.current = null;
-    };
-  }, []);
+  const handleSeek = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+    void seekTo(parseFloat(e.target.value));
+  }, [seekTo]);
 
   useEffect(() => {
-    const handleSeek = (e: CustomEvent<{ time: number }>) => {
+    const handleSeekEvent = (e: CustomEvent<{ time: number }>) => {
       void seekTo(e.detail.time);
     };
 
-    window.addEventListener('seek-to', handleSeek as EventListener);
+    window.addEventListener('seek-to', handleSeekEvent as EventListener);
     return () => {
-      window.removeEventListener('seek-to', handleSeek as EventListener);
+      window.removeEventListener('seek-to', handleSeekEvent as EventListener);
     };
   }, [seekTo]);
 
@@ -182,10 +99,16 @@ export default function RenderPreviewPage() {
         step={0.01}
         value={currentTime}
         style={{ position: 'absolute', bottom: 0, left: 0, width: '100%', opacity: 0 }}
-        onChange={(e) => {
-          void seekTo(parseFloat(e.target.value));
-        }}
+        onChange={handleSeek}
       />
     </div>
+  );
+}
+
+export default function RenderPreviewPage() {
+  return (
+    <Suspense fallback={<div style={{ background: '#000', width: '100vw', height: '100vh' }} />}>
+      <RenderPreviewPageContent />
+    </Suspense>
   );
 }

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import type { RenderCompositionEngine, RenderVideoMetadata } from '@/lib/render/shared-render-core';
 import { getShader, vertexShader } from '@/shaders/library';
 
 export interface PreviewOptions {
@@ -10,7 +11,7 @@ export interface PreviewOptions {
   container?: HTMLElement;
 }
 
-export class PreviewEngine {
+export class PreviewEngine implements RenderCompositionEngine {
   private scene: THREE.Scene;
   private camera: THREE.OrthographicCamera;
   private renderer: THREE.WebGLRenderer;
@@ -29,7 +30,7 @@ export class PreviewEngine {
   private lastAnimationTime: number | null = null;
   private compositionDuration: number | null = null;
   private resolution: { width: number; height: number };
-  private readonly debug = true;
+  private readonly debug = false;
   private container: HTMLElement | null = null;
 
   constructor(options: PreviewOptions = {}) {
@@ -118,29 +119,31 @@ export class PreviewEngine {
       document.body.appendChild(video);
       this.log('Loading video', { name, url: fullUrl });
 
-      video.addEventListener('loadedmetadata', () => {
-        this.log('loadedmetadata', {
-          name,
-          duration: Number.isFinite(video.duration) ? video.duration : null,
-          width: video.videoWidth,
-          height: video.videoHeight,
-          readyState: video.readyState,
+      if (this.debug) {
+        video.addEventListener('loadedmetadata', () => {
+          this.log('loadedmetadata', {
+            name,
+            duration: Number.isFinite(video.duration) ? video.duration : null,
+            width: video.videoWidth,
+            height: video.videoHeight,
+            readyState: video.readyState,
+          });
         });
-      });
-      video.addEventListener('loadeddata', () => {
-        this.log('loadeddata', { name, readyState: video.readyState });
-      });
-      video.addEventListener('canplay', () => {
-        this.log('canplay', { name, readyState: video.readyState });
-      });
-      video.addEventListener('error', () => {
-        this.log('video error', {
-          name,
-          networkState: video.networkState,
-          readyState: video.readyState,
-          src: video.currentSrc || fullUrl,
+        video.addEventListener('loadeddata', () => {
+          this.log('loadeddata', { name, readyState: video.readyState });
         });
-      });
+        video.addEventListener('canplay', () => {
+          this.log('canplay', { name, readyState: video.readyState });
+        });
+        video.addEventListener('error', () => {
+          this.log('video error', {
+            name,
+            networkState: video.networkState,
+            readyState: video.readyState,
+            src: video.currentSrc || fullUrl,
+          });
+        });
+      }
 
       const timeout = setTimeout(() => {
         reject(new Error(`Video load timeout: ${url}`));
@@ -464,6 +467,17 @@ export class PreviewEngine {
 
   getVideoElement(name: string): HTMLVideoElement | undefined {
     return this.videoElementsByName.get(name);
+  }
+
+  getVideoMetadata(name: string): RenderVideoMetadata | undefined {
+    const video = this.videoElementsByName.get(name);
+    if (!video) return undefined;
+
+    return {
+      duration: Number.isFinite(video.duration) ? video.duration : null,
+      videoWidth: video.videoWidth || this.resolution.width,
+      videoHeight: video.videoHeight || this.resolution.height,
+    };
   }
 
   syncVideo(name: string, time: number, options: { playbackRate?: number } = {}): void {

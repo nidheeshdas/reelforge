@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import type { RenderCompositionEngine } from '@/lib/render/shared-render-core';
 import { parseVidscript } from '@/parser';
 import type {
   CompositeNode,
@@ -17,8 +18,6 @@ import type {
   VideoSpeedNode,
   VideoTrimNode,
 } from '@/types/vidscript';
-import { PreviewEngine } from './engine';
-
 const DEFAULT_DURATION = 10;
 const FRAME_EPSILON = 1 / 120;
 
@@ -421,7 +420,11 @@ function isActiveAt(currentTime: number, startTime: number, endTime: number): bo
   return currentTime >= startTime && currentTime < endTime;
 }
 
-export function applyCompositionState(engine: PreviewEngine, composition: BuiltComposition, currentTime: number): void {
+export function applyCompositionState(
+  engine: RenderCompositionEngine,
+  composition: BuiltComposition,
+  currentTime: number,
+): void {
   composition.textMeshes.forEach((mesh, index) => {
     const overlay = composition.overlays[index];
     mesh.visible = !!overlay && isActiveAt(currentTime, overlay.startTime, overlay.endTime);
@@ -450,12 +453,11 @@ export function applyCompositionState(engine: PreviewEngine, composition: BuiltC
 }
 
 export async function buildComposition(
-  engine: PreviewEngine,
+  engine: RenderCompositionEngine,
   code: string,
   width: number,
   height: number,
 ): Promise<BuiltComposition> {
-  console.log('[Composition] Building composition', { width, height });
   const result = parseVidscript(code);
 
   if (result.errors.length > 0) {
@@ -476,18 +478,17 @@ export async function buildComposition(
     const videoInput = isVideoPath(input.path);
 
     if (videoInput) {
-      console.log('[Composition] Loading input video', { name: input.name, path: input.path });
       await engine.loadVideo(input.path, input.name);
     }
 
-    const videoElement = engine.getVideoElement(input.name);
+    const videoMetadata = engine.getVideoMetadata(input.name);
     inputs.set(input.name, {
       name: input.name,
       path: input.path,
       isVideo: videoInput,
-      duration: videoElement && Number.isFinite(videoElement.duration) ? videoElement.duration : null,
-      videoWidth: videoElement?.videoWidth || width,
-      videoHeight: videoElement?.videoHeight || height,
+      duration: videoMetadata?.duration ?? null,
+      videoWidth: videoMetadata?.videoWidth || width,
+      videoHeight: videoMetadata?.videoHeight || height,
     });
   }
 
@@ -579,13 +580,6 @@ export async function buildComposition(
   const built: BuiltComposition = { duration, overlays, textMeshes, videoClips, effects };
   applyCompositionState(engine, built, 0);
 
-  console.log('[Composition] Built', {
-    duration,
-    overlays: overlays.length,
-    textMeshes: textMeshes.length,
-    videoClips: videoClips.length,
-    effects: effects.length,
-  });
 
   return built;
 }
