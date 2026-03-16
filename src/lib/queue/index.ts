@@ -1,5 +1,6 @@
 import { Queue, Worker, Job } from 'bullmq';
 import { renderHeadlessComposition } from '../../render/webgl-renderer';
+import { resolveRenderResolution } from '@/render/render-config';
 
 export interface RenderJobData {
   renderId: number;
@@ -7,12 +8,6 @@ export interface RenderJobData {
   resolution: string;
   userId: number;
 }
-
-const RESOLUTIONS: Record<string, { width: number; height: number }> = {
-  '1080x1920': { width: 1080, height: 1920 },
-  '1080x1080': { width: 1080, height: 1080 },
-  '1920x1080': { width: 1920, height: 1080 },
-};
 
 const connection = {
   host: process.env.REDIS_HOST || 'localhost',
@@ -44,7 +39,7 @@ export function startRenderWorker() {
         await renderHeadlessComposition({
           renderId,
           vidscript,
-          resolution: RESOLUTIONS[resolution] || RESOLUTIONS['1080x1920'],
+          resolution: resolveRenderResolution(resolution).resolution,
           onProgress: (progress: number) => {
             job.updateProgress(progress);
           },

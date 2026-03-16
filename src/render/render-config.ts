@@ -1,6 +1,10 @@
 import { parseVidscript } from '@/parser';
 
 export const DEFAULT_RENDER_RESOLUTION = '1080x1920';
+const RESOLUTION_PATTERN = /^(\d{2,5})x(\d{2,5})$/;
+const MIN_RENDER_DIMENSION = 64;
+const MAX_RENDER_DIMENSION = 3840;
+const MAX_RENDER_PIXELS = 8_294_400;
 
 export const RENDER_RESOLUTIONS: Record<string, { width: number; height: number }> = {
   '1080x1920': { width: 1080, height: 1920 },
@@ -14,18 +18,63 @@ export interface RenderScriptConfig {
   resolution: { width: number; height: number };
 }
 
+export function resolveRenderResolution(
+  requestedResolution?: string,
+  fallbackResolution: string = DEFAULT_RENDER_RESOLUTION
+): { resolutionKey: string; resolution: { width: number; height: number } } {
+  const fallbackResolutionKey = RENDER_RESOLUTIONS[fallbackResolution]
+    ? fallbackResolution
+    : DEFAULT_RENDER_RESOLUTION;
+  const fallback = {
+    resolutionKey: fallbackResolutionKey,
+    resolution: RENDER_RESOLUTIONS[fallbackResolutionKey],
+  };
+
+  if (!requestedResolution) {
+    return fallback;
+  }
+
+  const normalizedResolution = requestedResolution.trim();
+  if (RENDER_RESOLUTIONS[normalizedResolution]) {
+    return {
+      resolutionKey: normalizedResolution,
+      resolution: RENDER_RESOLUTIONS[normalizedResolution],
+    };
+  }
+
+  const match = normalizedResolution.match(RESOLUTION_PATTERN);
+  if (!match) {
+    return fallback;
+  }
+
+  const width = Number.parseInt(match[1], 10);
+  const height = Number.parseInt(match[2], 10);
+
+  if (
+    width < MIN_RENDER_DIMENSION ||
+    height < MIN_RENDER_DIMENSION ||
+    width > MAX_RENDER_DIMENSION ||
+    height > MAX_RENDER_DIMENSION ||
+    width * height > MAX_RENDER_PIXELS
+  ) {
+    return fallback;
+  }
+
+  return {
+    resolutionKey: `${width}x${height}`,
+    resolution: { width, height },
+  };
+}
+
 export function extractRenderScriptConfig(
   vidscript: string,
   fallbackResolution: string = DEFAULT_RENDER_RESOLUTION
 ): RenderScriptConfig {
-  const fallbackResolutionKey = RENDER_RESOLUTIONS[fallbackResolution]
-    ? fallbackResolution
-    : DEFAULT_RENDER_RESOLUTION;
-
+  const fallbackResolutionConfig = resolveRenderResolution(undefined, fallbackResolution);
   const fallbackConfig: RenderScriptConfig = {
     outputFilename: 'render.mp4',
-    resolutionKey: fallbackResolutionKey,
-    resolution: RENDER_RESOLUTIONS[fallbackResolutionKey],
+    resolutionKey: fallbackResolutionConfig.resolutionKey,
+    resolution: fallbackResolutionConfig.resolution,
   };
 
   const parseResult = parseVidscript(vidscript);
@@ -39,14 +88,12 @@ export function extractRenderScriptConfig(
   }
 
   const requestedResolution = outputNode.options?.resolution;
-  const resolutionKey = requestedResolution && RENDER_RESOLUTIONS[requestedResolution]
-    ? requestedResolution
-    : fallbackResolutionKey;
+  const resolvedResolution = resolveRenderResolution(requestedResolution, fallbackResolution);
 
   return {
     outputFilename: sanitizeDownloadFilename(outputNode.path || fallbackConfig.outputFilename),
-    resolutionKey,
-    resolution: RENDER_RESOLUTIONS[resolutionKey],
+    resolutionKey: resolvedResolution.resolutionKey,
+    resolution: resolvedResolution.resolution,
   };
 }
 
