@@ -9,8 +9,7 @@ import Link from 'next/link';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useSession } from 'next-auth/react';
-import { ArrowLeft, Clapperboard, Eye, Download, Sparkles, CircleCheck, CircleAlert, FolderOpen, Code2 } from 'lucide-react';
+import { ArrowLeft, Clapperboard, Eye, Download, Sparkles, FolderOpen, Code2 } from 'lucide-react';
 import {
   extractRenderScriptConfig,
   RENDER_RESOLUTIONS,
@@ -112,7 +111,6 @@ function upsertOutputStatement(
 }
 
 export default function EditorPage() {
-  const { data: session } = useSession();
   const [code, setCode] = useState(DEFAULT_CODE);
   const [previewCode, setPreviewCode] = useState(DEFAULT_CODE);
   const [errors, setErrors] = useState<string[]>([]);
@@ -154,15 +152,20 @@ export default function EditorPage() {
       height: Math.max(180, Math.round(previewRenderConfig.resolution.height * scale)),
     };
   }, [previewRenderConfig.resolution.height, previewRenderConfig.resolution.width]);
-  const sidebarSummary = useMemo(
-    () => [
-      { label: 'Canvas', value: `${projectSettingsFromCode.width} × ${projectSettingsFromCode.height}` },
-      { label: 'Output', value: sanitizeDownloadFilename(projectSettingsFromCode.outputFilename) },
-      { label: 'Preview', value: previewNeedsRefresh ? 'Needs refresh' : 'In sync' },
-      { label: 'Placeholders', value: placeholders.length ? String(placeholders.length) : 'None' },
-    ],
-    [placeholders.length, previewNeedsRefresh, projectSettingsFromCode.height, projectSettingsFromCode.outputFilename, projectSettingsFromCode.width],
-  );
+  const compactStatusText = errors.length
+    ? `${errors.length} issue${errors.length > 1 ? 's' : ''}`
+    : previewNeedsRefresh
+      ? 'Preview stale'
+      : 'Ready';
+  const outputSummaryText = `${sanitizeDownloadFilename(projectSettingsFromCode.outputFilename)} · ${projectSettingsFromCode.width} × ${projectSettingsFromCode.height}`;
+  const previewActionTitle = errors.length
+    ? 'Fix script errors before refreshing the preview.'
+    : previewNeedsRefresh
+      ? 'Refresh the preview with the latest valid VidScript and canvas settings.'
+      : 'Rebuild the preview with the current VidScript and canvas settings.';
+  const exportActionTitle = errors.length
+    ? 'Resolve script errors before exporting.'
+    : 'Export an MP4 using the current output filename and canvas size.';
 
   const applyDraftCode = useCallback((nextCode: string) => {
     const validation = validateVidscript(nextCode);
@@ -170,6 +173,10 @@ export default function EditorPage() {
     setErrors(validation.errors);
     setPlaceholders(extractPlaceholders(nextCode));
     return validation;
+  }, []);
+  const syncPreview = useCallback((nextCode: string) => {
+    setPreviewCode(nextCode);
+    setPreviewNonce((value) => value + 1);
   }, []);
 
   const clearRenderPoll = useCallback(() => {
@@ -186,12 +193,11 @@ export default function EditorPage() {
       setProjectSettingsError(null);
       setProjectSettingsNotice(null);
       if (validation.errors.length === 0) {
-        setPreviewCode(imported);
-        setPreviewNonce((value) => value + 1);
+        syncPreview(imported);
       }
       localStorage.removeItem('vidscript_import');
     }
-  }, [applyDraftCode]);
+  }, [applyDraftCode, syncPreview]);
 
   useEffect(() => {
     return () => {
@@ -202,6 +208,19 @@ export default function EditorPage() {
   useEffect(() => {
     setProjectSettings(projectSettingsFromCode);
   }, [projectSettingsFromCode]);
+
+  useEffect(() => {
+    if (draftRenderConfig.resolutionKey === previewRenderConfig.resolutionKey) {
+      return;
+    }
+
+    const validation = validateVidscript(code);
+    if (validation.errors.length > 0) {
+      return;
+    }
+
+    syncPreview(code);
+  }, [code, draftRenderConfig.resolutionKey, previewRenderConfig.resolutionKey, syncPreview]);
 
   const handleCodeChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setProjectSettingsError(null);
@@ -217,9 +236,8 @@ export default function EditorPage() {
     }
 
     setErrors([]);
-    setPreviewCode(code);
-    setPreviewNonce((value) => value + 1);
-  }, [code]);
+    syncPreview(code);
+  }, [code, syncPreview]);
 
   const handleInsertAsset = useCallback((assetPath: string) => {
     const newLine = code.endsWith('\n') ? '' : '\n';
@@ -260,10 +278,13 @@ export default function EditorPage() {
       height,
     });
 
-    applyDraftCode(nextCode);
+    const validation = applyDraftCode(nextCode);
+    if (validation.errors.length === 0) {
+      syncPreview(nextCode);
+    }
     setProjectSettingsError(null);
     setProjectSettingsNotice(`Updated output to ${sanitizeDownloadFilename(nextSettings.outputFilename)} at ${width}x${height}.`);
-  }, [applyDraftCode, code]);
+  }, [applyDraftCode, code, syncPreview]);
 
   const handleProjectSettingsSubmit = useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -313,8 +334,7 @@ export default function EditorPage() {
     clearRenderPoll();
 
     if (previewNeedsRefresh) {
-      setPreviewCode(code);
-      setPreviewNonce((value) => value + 1);
+      syncPreview(code);
     }
 
     try {
@@ -380,7 +400,7 @@ export default function EditorPage() {
       setRendering(false);
       setErrors([err instanceof Error ? err.message : 'Export failed']);
     }
-  }, [clearRenderPoll, code, draftRenderConfig.outputFilename, draftRenderConfig.resolutionKey, previewNeedsRefresh]);
+  }, [clearRenderPoll, code, draftRenderConfig.outputFilename, draftRenderConfig.resolutionKey, previewNeedsRefresh, syncPreview]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#090f1a', color: '#dbe7ff' }}>
@@ -395,14 +415,14 @@ export default function EditorPage() {
       >
         <div
           style={{
-            padding: '1rem',
+            padding: '0.9rem 1rem',
             borderBottom: '1px solid #1f2c46',
             display: 'flex',
             flexDirection: 'column',
-            gap: '0.8rem',
+            gap: '0.7rem',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
             <Link
               href="/"
               style={{
@@ -415,151 +435,106 @@ export default function EditorPage() {
               }}
             >
               <ArrowLeft size={16} />
-              ReelForge
-            </Link>
-            <span
+                ReelForge
+              </Link>
+            <Link
+              href="/account"
+              title="Manage your account, integrations, and API settings."
               style={{
                 fontSize: '0.75rem',
-                color: '#7e95bf',
-                border: '1px solid #2d4064',
-                borderRadius: 999,
-                padding: '0.2rem 0.55rem',
-              }}
-            >
-              Editor v3
-            </span>
-          </div>
-
-          <div style={{ fontSize: '0.82rem', color: '#9ab0d7', lineHeight: 1.55 }}>
-            Keep delivery controls at the top, then tune the draft below. The sidebar now acts like a control rail instead of a status wall.
-          </div>
-
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
-            <span
-              style={{
-                fontSize: '0.72rem',
-                color: errors.length ? '#fecaca' : '#c7f9cc',
-                border: `1px solid ${errors.length ? '#7f1d1d' : '#1f5135'}`,
-                borderRadius: 999,
-                padding: '0.28rem 0.55rem',
-                background: errors.length ? '#231018' : '#0f2018',
-              }}
-            >
-              {errors.length ? `${errors.length} issue${errors.length > 1 ? 's' : ''}` : 'Script valid'}
-            </span>
-            <span
-              style={{
-                fontSize: '0.72rem',
                 color: '#cfe0ff',
                 border: '1px solid #30476f',
                 borderRadius: 999,
-                padding: '0.28rem 0.55rem',
+                padding: '0.35rem 0.7rem',
                 background: '#10192d',
+                textDecoration: 'none',
+                whiteSpace: 'nowrap',
               }}
             >
-              {previewNeedsRefresh ? 'Preview stale' : 'Preview synced'}
+              Account settings
+            </Link>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem' }}>
+            <Button
+              onClick={handlePreview}
+              variant="secondary"
+              size="sm"
+              title={previewActionTitle}
+              className="justify-center gap-2"
+              style={{
+                height: 38,
+                background: previewNeedsRefresh ? '#1a2d4d' : '#12253f',
+                color: '#dbe7ff',
+                border: '1px solid #2f4a73',
+              }}
+            >
+              <Eye className="h-4 w-4" />
+              Preview
+            </Button>
+
+            <Button
+              onClick={handleExport}
+              size="sm"
+              title={exportActionTitle}
+              className="justify-center gap-2"
+              disabled={rendering || errors.length > 0}
+              style={{
+                height: 38,
+                background: 'linear-gradient(135deg, #2457ff, #3f8cff)',
+                color: 'white',
+              }}
+            >
+              <Download className="h-4 w-4" />
+              {rendering ? `Export ${renderProgress}%` : 'Export'}
+            </Button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+            <span style={{ fontSize: '0.74rem', color: errors.length ? '#fecaca' : previewNeedsRefresh ? '#fcd34d' : '#86efac' }}>
+              {compactStatusText}
             </span>
-            {session && (
-              <Link href="/account" style={{ fontSize: '0.78rem', color: '#8fb1ff', textDecoration: 'none' }}>
-                Account settings
-              </Link>
-            )}
-          </div>
-        </div>
-
-        <div
-          style={{
-            padding: '1rem',
-            borderBottom: '1px solid #1f2c46',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.75rem',
-          }}
-        >
-          <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.18em', color: '#8fb1ff' }}>
-            Draft controls
+            <Link
+              href={previewUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: '0.74rem', color: '#8fb1ff', textDecoration: 'none', whiteSpace: 'nowrap' }}
+              title="Open the render preview in a separate tab."
+            >
+              Open preview
+            </Link>
           </div>
 
-          <Button
-            onClick={handlePreview}
-            variant="secondary"
-            className="w-full justify-start h-auto"
-            style={{ background: '#1a2d4d', color: '#dbe7ff', border: '1px solid #2f4a73', padding: '0.9rem 1rem' }}
+          <div
+            style={{
+              fontSize: '0.74rem',
+              color: '#8aa4d4',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+            title={outputSummaryText}
           >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', width: '100%' }}>
-              <Eye className="h-4 w-4" style={{ marginTop: 2 }} />
-              <div style={{ textAlign: 'left' }}>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                  {errors.length ? 'Fix issues to refresh preview' : previewNeedsRefresh ? 'Refresh preview' : 'Preview ready'}
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#9eb6df', marginTop: '0.2rem' }}>
-                  Rebuild the player using the latest valid VidScript and canvas settings.
-                </div>
-              </div>
-            </div>
-          </Button>
-
-          <Button
-            onClick={handleExport}
-            className="w-full justify-start h-auto"
-            disabled={rendering || errors.length > 0}
-            style={{ background: 'linear-gradient(135deg, #2457ff, #3f8cff)', color: 'white', padding: '0.9rem 1rem' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', width: '100%' }}>
-              <Download className="h-4 w-4" style={{ marginTop: 2 }} />
-              <div style={{ textAlign: 'left' }}>
-                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
-                  {rendering ? `Rendering ${renderProgress}%...` : 'Export MP4'}
-                </div>
-                <div style={{ fontSize: '0.75rem', color: '#dbeafe', marginTop: '0.2rem' }}>
-                  {errors.length
-                    ? 'Resolve script errors before starting the final render.'
-                    : 'Create the downloadable render using the current output filename and canvas size.'}
-                </div>
-              </div>
-            </div>
-          </Button>
-
-          <div style={{ border: '1px solid #22314d', borderRadius: 18, padding: '0.9rem', background: '#0d1728' }}>
-            <div style={{ display: 'grid', gap: '0.65rem' }}>
-              {sidebarSummary.map((item) => (
-                <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', fontSize: '0.78rem' }}>
-                  <span style={{ color: '#8aa4d4' }}>{item.label}</span>
-                  <span style={{ color: '#deebff', fontWeight: 600, textAlign: 'right' }}>{item.value}</span>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ marginTop: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Link
-                href={previewUrl}
-                target="_blank"
-                rel="noreferrer"
-                style={{ fontSize: '0.78rem', color: '#8fb1ff', textDecoration: 'none' }}
-              >
-                Open render preview page
-              </Link>
-              <span style={{ fontSize: '0.72rem', color: '#8aa4d4' }}>{draftRenderConfig.resolutionKey}</span>
-            </div>
-
-            {rendering && (
-              <div style={{ marginTop: '0.8rem' }}>
-                <div style={{ height: 8, borderRadius: 999, background: '#1b2a45', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      width: `${renderProgress}%`,
-                      height: '100%',
-                      background: 'linear-gradient(90deg, #3b82f6, #60a5fa)',
-                    }}
-                  />
-                </div>
-              </div>
-            )}
+            {outputSummaryText}
           </div>
+
+          {rendering && (
+            <div>
+              <div style={{ height: 6, borderRadius: 999, background: '#1b2a45', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    width: `${renderProgress}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg, #3b82f6, #60a5fa)',
+                  }}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex-1 flex min-h-0 flex-col overflow-hidden">
-          <TabsList className="grid grid-cols-2 mx-4 mt-4" style={{ background: '#101d33', border: '1px solid #243656' }}>
+          <TabsList className="grid grid-cols-2 mx-4 mt-3" style={{ background: '#101d33', border: '1px solid #243656' }}>
             <TabsTrigger value="editor">
               <Code2 className="h-3 w-3 mr-1" />
               Editor
@@ -571,17 +546,13 @@ export default function EditorPage() {
           </TabsList>
 
           <TabsContent value="editor" className="flex-1 overflow-auto m-0 px-4 pb-4 pt-3 space-y-4">
-            <div style={{ border: '1px solid #2a3d5f', borderRadius: 18, padding: '1rem', background: 'linear-gradient(180deg, rgba(15,26,46,0.98) 0%, rgba(10,18,31,0.96) 100%)' }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.85rem' }}>
-                <div>
-                  <h3 style={{ marginBottom: '0.2rem', fontSize: '0.95rem', color: '#e7efff' }}>Project settings</h3>
-                  <p style={{ fontSize: '0.78rem', color: '#89a3d3', lineHeight: 1.5 }}>
-                    Change the output file and canvas from the sidebar. These controls write back to the `output to ...` line in the script.
-                  </p>
-                </div>
-                <span style={{ fontSize: '0.68rem', color: '#8fb1ff', border: '1px solid #30476f', borderRadius: 999, padding: '0.24rem 0.5rem', background: '#10192d' }}>
-                  Project
-                </span>
+            <div style={{ border: '1px solid #2a3d5f', borderRadius: 18, padding: '0.95rem', background: 'linear-gradient(180deg, rgba(15,26,46,0.98) 0%, rgba(10,18,31,0.96) 100%)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.3rem' }}>
+                <h3 style={{ margin: 0, fontSize: '0.95rem', color: '#e7efff' }}>Project settings</h3>
+                <span style={{ fontSize: '0.74rem', color: '#8aa4d4' }}>{draftRenderConfig.resolutionKey}</span>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#89a3d3', marginBottom: '0.8rem' }}>
+                Output filename and canvas write back to the script.
               </div>
 
               <form ref={projectSettingsFormRef} onSubmit={handleProjectSettingsSubmit} style={{ display: 'grid', gap: '0.9rem' }}>
@@ -615,7 +586,7 @@ export default function EditorPage() {
                             borderRadius: 14,
                             border: active ? '1px solid #5b8cff' : '1px solid #2a3d5f',
                             background: active ? 'rgba(36, 87, 255, 0.18)' : '#0d1728',
-                            padding: '0.7rem 0.6rem',
+                            padding: '0.6rem 0.55rem',
                             textAlign: 'left',
                             color: active ? '#eff5ff' : '#c7d6ef',
                           }}
@@ -663,7 +634,7 @@ export default function EditorPage() {
                 </div>
 
                 <div style={{ fontSize: '0.75rem', color: '#8aa4d4', lineHeight: 1.5 }}>
-                  Use presets for common formats or enter custom dimensions for a one-off canvas. The editor keeps preview and export aligned to the script output settings.
+                  Presets apply immediately. Use `Apply to script` after entering custom dimensions.
                 </div>
 
                 {projectSettingsError && (
@@ -677,25 +648,10 @@ export default function EditorPage() {
                   </div>
                 )}
 
-                <Button type="submit" className="w-full" style={{ background: '#1f4ed8', color: '#f8fbff' }}>
-                  Apply project settings
+                <Button type="submit" size="sm" className="w-full" style={{ background: '#1f4ed8', color: '#f8fbff' }}>
+                  Apply to script
                 </Button>
               </form>
-            </div>
-
-            <div style={{ border: '1px solid #22314d', borderRadius: 16, padding: '0.95rem', background: '#0d1728' }}>
-              <div style={{ fontSize: '0.78rem', color: '#9bb2dc', marginBottom: '0.7rem' }}>Editor health</div>
-              <div style={{ display: 'grid', gap: '0.7rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', fontSize: '0.82rem', color: errors.length ? '#fca5a5' : '#89d18a' }}>
-                  {errors.length ? <CircleAlert size={14} /> : <CircleCheck size={14} />}
-                  <span>{errors.length ? 'Resolve syntax issues before exporting.' : 'Draft is ready for preview and export.'}</span>
-                </div>
-                <div style={{ display: 'grid', gap: '0.45rem', fontSize: '0.78rem', color: '#bfd0f2' }}>
-                  <div>Current canvas: {projectSettingsFromCode.width} × {projectSettingsFromCode.height}</div>
-                  <div>Preview status: {previewNeedsRefresh ? 'Refresh required after your latest edits.' : 'Preview matches the latest valid draft.'}</div>
-                  <div>Asset insertion returns you to the Editor tab so you can continue writing without hunting for the script.</div>
-                </div>
-              </div>
             </div>
 
             {placeholders.length > 0 && (
@@ -708,15 +664,6 @@ export default function EditorPage() {
                 ))}
               </div>
             )}
-
-            <div style={{ border: '1px solid #22314d', borderRadius: 16, padding: '0.9rem', background: '#0d1728' }}>
-              <div style={{ fontSize: '0.78rem', color: '#9bb2dc', marginBottom: '0.55rem' }}>Workflow tips</div>
-              <div style={{ display: 'grid', gap: '0.45rem', fontSize: '0.78rem', color: '#bfd0f2' }}>
-                <div>Use preview first for iteration speed, then export only when the canvas and content are settled.</div>
-                <div>Drop assets from the Assets tab to scaffold fresh `input` lines without breaking the writing flow.</div>
-                <div>Treat the output filename and canvas as project-level controls; keep composition edits in the main editor.</div>
-              </div>
-            </div>
           </TabsContent>
 
           <TabsContent value="assets" className="m-0 flex-1 min-h-0 overflow-hidden px-3 pb-3 pt-2">

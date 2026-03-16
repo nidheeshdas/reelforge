@@ -342,7 +342,7 @@ function peg$parse(input, options) {
     return { type: 'Output', path, options: options ? options[3] : {} };
   }
   function peg$f8(head, tail) {
-    const acc = head;
+    const acc = { [head.key]: head.value };
     for (let i = 0; i < tail.length; i++) {
       const item = tail[i][3];
       acc[item.key] = item.value;

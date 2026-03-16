@@ -18,6 +18,27 @@ export interface RenderScriptConfig {
   resolution: { width: number; height: number };
 }
 
+function getOutputOptionValue(
+  options: unknown,
+  key: 'resolution' | 'format' | 'codec' | 'fps' | 'bitrate',
+): string | undefined {
+  if (!options || typeof options !== 'object') {
+    return undefined;
+  }
+
+  const record = options as Record<string, unknown>;
+  const mappedValue = record[key];
+  if (typeof mappedValue === 'string') {
+    return mappedValue;
+  }
+
+  if (record.key === key && typeof record.value === 'string') {
+    return record.value;
+  }
+
+  return undefined;
+}
+
 export function resolveRenderResolution(
   requestedResolution?: string,
   fallbackResolution: string = DEFAULT_RENDER_RESOLUTION
@@ -87,7 +108,7 @@ export function extractRenderScriptConfig(
     return fallbackConfig;
   }
 
-  const requestedResolution = outputNode.options?.resolution;
+  const requestedResolution = getOutputOptionValue(outputNode.options, 'resolution');
   const resolvedResolution = resolveRenderResolution(requestedResolution, fallbackResolution);
 
   return {
