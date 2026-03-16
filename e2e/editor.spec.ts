@@ -48,6 +48,19 @@ output to "test.mp4", resolution: 1080x1920`);
     await expect(page.getByRole('main').getByText('1080x1080', { exact: true })).toBeVisible();
   });
 
+  test('should show a compact assets panel without redundant editor navigation', async ({ page }) => {
+    await page.goto('/editor');
+
+    await page.getByRole('tab', { name: /Assets/i }).click();
+
+    await expect(page.getByText('Asset sources')).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Local/i })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Samples/i })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Drive/i })).toBeVisible();
+    await expect(page.getByRole('tab', { name: /Dropbox/i })).toBeVisible();
+    await expect(page.getByText(/Back to editor/i)).toHaveCount(0);
+  });
+
   test('should show errors for invalid code', async ({ page }) => {
     await page.goto('/editor');
     await page.locator('textarea').fill(`input video = "test.mp4
