@@ -1,23 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as fs from 'fs';
-import * as path from 'path';
+import { requireSessionUserId } from '@/lib/auth/session';
 import prisma from '@/lib/db/prisma';
+import { resolveStoredRenderPath } from '@/lib/storage/paths';
 import { extractRenderScriptConfig } from '@/render/render-config';
 
-function resolveRenderFilePath(outputPath: string): string {
-  const normalized = outputPath
-    .replace(/\\/g, '/')
-    .replace(/^\/?public\//, '')
-    .replace(/^\/+/, '');
+export async function GET(request: NextRequest) {
+  const auth = await requireSessionUserId();
 
-  if (!normalized || normalized.split('/').includes('..')) {
-    throw new Error('Invalid render output path');
+  if (auth.response) {
+    return auth.response;
   }
 
-  return path.join(process.cwd(), 'public', normalized);
-}
-
-export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const renderId = searchParams.get('id');
 
@@ -30,8 +24,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid render ID' }, { status: 400 });
   }
 
-  const render = await prisma.render.findUnique({
-    where: { id: parsedRenderId },
+  const render = await prisma.render.findFirst({
+    where: {
+      id: parsedRenderId,
+      userId: auth.userId,
+    },
   });
 
   if (!render) {
@@ -44,7 +41,7 @@ export async function GET(request: NextRequest) {
 
   let filePath: string;
   try {
-    filePath = resolveRenderFilePath(render.outputPath);
+    filePath = resolveStoredRenderPath(render.outputPath);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Invalid output path' },

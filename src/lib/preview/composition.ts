@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import type { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import type { RenderCompositionEngine } from '@/lib/render/shared-render-core';
-import { parseVidscript } from '@/parser';
+import { compileVidscript } from '@/parser';
 import type {
+  CompileOptions,
   CompositeNode,
   FilterNode,
   InputNode,
@@ -306,8 +307,8 @@ function compileTimeBlock(
       case 'VideoResize': {
         const draft = ensureDraft(instruction.target, 'base');
         if (!draft) break;
-        draft.width = Math.max(1, instruction.width);
-        draft.height = Math.max(1, instruction.height);
+        draft.width = Math.max(1, asFiniteNumber(instruction.width, 1));
+        draft.height = Math.max(1, asFiniteNumber(instruction.height, 1));
         break;
       }
       case 'VideoSpeed': {
@@ -457,18 +458,19 @@ export async function buildComposition(
   code: string,
   width: number,
   height: number,
+  compileOptions: CompileOptions = {},
 ): Promise<BuiltComposition> {
-  const result = parseVidscript(code);
+  const result = compileVidscript(code, compileOptions);
 
   if (result.errors.length > 0) {
     throw new Error(result.errors[0].message);
   }
 
-  if (!result.ast) {
-    throw new Error('Failed to parse code');
+  if (!result.program) {
+    throw new Error('Failed to compile code');
   }
 
-  const program = result.ast as ProgramNode;
+  const program = result.program as ProgramNode;
   const inputs = new Map<string, InputMedia>();
 
   for (const stmt of program.statements) {

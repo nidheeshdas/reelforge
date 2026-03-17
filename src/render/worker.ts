@@ -1,9 +1,10 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { parseVidscript, fillPlaceholders } from '@/parser';
+import { compileVidscript, fillPlaceholders } from '@/parser';
 import { prisma } from '@/lib/db/prisma';
-import { getShader } from '@/shaders/library';
+import { ensureRenderDir, getRenderPublicPath } from '@/lib/storage/paths';
+import type { CompileOptions } from '@/types/vidscript';
 
 interface RenderOptions {
   renderId: number;
@@ -11,6 +12,7 @@ interface RenderOptions {
   resolution: string;
   placeholders?: Record<string, string>;
   onProgress?: (progress: number) => void;
+  compileOptions?: CompileOptions;
 }
 
 interface Resolution {
@@ -36,7 +38,7 @@ const FFMPEG_FILTER_MAP: Record<string, string> = {
 };
 
 export async function renderVideo(options: RenderOptions): Promise<string> {
-  const { renderId, vidscript, resolution, placeholders = {}, onProgress } = options;
+  const { renderId, vidscript, resolution, placeholders = {}, onProgress, compileOptions = {} } = options;
   
   const res = RESOLUTIONS[resolution] || RESOLUTIONS['1080x1920'];
   const width = res.width;
@@ -49,28 +51,24 @@ export async function renderVideo(options: RenderOptions): Promise<string> {
     });
     
     const finalScript = fillPlaceholders(vidscript, placeholders);
-    const parseResult = parseVidscript(finalScript);
+    const parseResult = compileVidscript(finalScript, compileOptions);
     
     if (parseResult.errors.length > 0) {
       throw new Error(parseResult.errors[0].message);
     }
     
-    if (!parseResult.ast) {
-      throw new Error('Failed to parse vidscript');
+    if (!parseResult.program) {
+      throw new Error('Failed to compile vidscript');
     }
     
-    const outputDir = path.join(process.cwd(), 'public', 'renders');
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-    
+    const outputDir = ensureRenderDir();
     const outputPath = path.join(outputDir, `${renderId}.mp4`);
-    const ast = parseResult.ast;
+    const ast = parseResult.program;
     const duration = estimateDuration(ast);
     
     await processVideo(ast, outputPath, width, height, duration, onProgress);
     
-    const relativePath = `/renders/${renderId}.mp4`;
+    const relativePath = getRenderPublicPath(renderId);
     
     await prisma.render.update({
       where: { id: renderId },

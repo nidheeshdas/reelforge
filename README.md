@@ -76,15 +76,27 @@ output to "result.mp4", resolution: 1080x1920
 
 Copy `.env.example` to `.env` and configure:
 
-- `DATABASE_URL` - PostgreSQL connection
-- `NEXTAUTH_SECRET` - Auth secret
-- `NEXTAUTH_URL` - Public app URL used by OAuth callbacks
-- `ENCRYPTION_KEY` - 64-char hex key used to encrypt stored provider tokens and API keys
-- `GITHUB_ID` / `GITHUB_SECRET` - GitHub OAuth app credentials for repository import
-- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - Google OAuth credentials for Drive import
-- `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` - Dropbox OAuth credentials for Dropbox import
-- `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_ENDPOINT` - planned Cloudflare R2 storage configuration
-- `REDIS_HOST/PORT` - For job queue
+### Required for local + production
+
+- `DATABASE_URL` - PostgreSQL connection string used by Prisma and auth.
+- `NEXTAUTH_SECRET` - Required for NextAuth session signing; use a long random value in production.
+- `NEXTAUTH_URL` - Public base URL for the app; must be the externally reachable HTTPS URL in production so OAuth callbacks resolve correctly.
+- `ENCRYPTION_KEY` - 64-char hex key used to encrypt stored provider tokens and API keys.
+
+### Required for the current render path
+
+- `FFMPEG_PATH` / `FFPROBE_PATH` - Optional overrides if `ffmpeg` and `ffprobe` are not on the default PATH. The production Docker image installs both at `/usr/bin`.
+- `UPLOAD_DIR` - Directory for uploaded assets. Defaults to `./public/uploads`. Mount this as persistent storage in production.
+- `RENDER_DIR` - Directory for generated render artifacts. Defaults to `./public/renders`. Mount this as persistent storage in production.
+- `REDIS_HOST` / `REDIS_PORT` - Redis connection settings for the existing queue-related code paths.
+
+### Optional integrations
+
+- `GITHUB_ID` / `GITHUB_SECRET` - GitHub OAuth app credentials for repository import.
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` - Google OAuth credentials for Drive import.
+- `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` - Dropbox OAuth credentials for Dropbox import.
+- `OPENAI_API_KEY` / `NEXT_PUBLIC_OPENAI_API_KEY` - Optional LLM integration keys.
+- `R2_*` - Planned object-storage settings. This deployment slice does **not** switch uploads/renders to R2 yet.
 
 ## Development
 
@@ -95,9 +107,38 @@ npm run parser:build
 # Run Prisma migrations
 npm run db:migrate
 
-# Start worker (separate terminal)
+# Start worker (separate terminal, optional / legacy path)
 node src/lib/queue/worker.js
 ```
+
+## Production Deployment Slice
+
+This repository now includes a minimal production container path for the **current single-instance architecture**:
+
+- `Dockerfile` - production-oriented image with ffmpeg/runtime libraries and `next start`.
+- `docker-compose.prod.yml` - app + Postgres + Redis with persistent Docker volumes for uploads and renders.
+- `GET /api/health` - lightweight health endpoint used by the production compose health check.
+
+### Start production locally
+
+```bash
+docker compose -f docker-compose.prod.yml up --build
+```
+
+Then open `http://localhost:3000`.
+
+### Important current limitations
+
+- **Persistent storage is mandatory**: uploaded assets and generated renders are still written to local disk. If the app container is recreated without mounted storage, user uploads and render artifacts are lost.
+- **Single-instance constraint**: this slice assumes one web process writing to one shared local filesystem path. Running multiple app instances without moving uploads/renders to object storage or a shared filesystem will cause inconsistent artifact availability.
+- **Use the download API for artifacts**: render downloads are supported via `/api/render/download`; the system is not yet an object-storage-backed artifact service.
+- **No worker split yet**: queue-worker separation, remote artifact storage, Stripe, and full monitoring/alerting are intentionally out of scope for this deployment slice.
+
+### Operational notes
+
+- Put the app behind a reverse proxy / TLS terminator in real production and set `NEXTAUTH_URL` to the public HTTPS origin.
+- Run Prisma migrations as part of deploy automation before routing traffic to a new release.
+- Back up the Postgres volume and the mounted upload/render volumes together until artifacts move to object storage.
 
 ## Documentation
 
