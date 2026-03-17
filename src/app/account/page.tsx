@@ -15,6 +15,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Cloud,
+  Coins,
   FolderOpen,
   Key,
   LayoutTemplate,
@@ -28,6 +29,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { getAccountNotice, type AccountNotice } from '@/lib/account/account-notices';
+import { getMonetizedSurfaceNotice } from '@/lib/support-matrix/capabilities';
 
 interface ApiKey {
   id: string;
@@ -72,6 +74,48 @@ interface TemplateListItem {
 interface TemplateMetadataForm {
   title: string;
   category: string;
+}
+
+interface ProfileData {
+  id: number;
+  name: string | null;
+  email: string;
+  credits: number;
+  emailVerified: string | null;
+  isCreator: boolean;
+  createdAt: string;
+}
+
+interface BillingTransaction {
+  id: string;
+  type: string;
+  amount: number;
+  balanceAfter: number;
+  description: string | null;
+  packId: string | null;
+  packName: string | null;
+  renderId: number | null;
+  createdAt: string;
+}
+
+interface BillingPack {
+  id: string;
+  name: string;
+  credits: number;
+  priceCents: number;
+  description: string;
+  featured?: boolean;
+}
+
+interface BillingSnapshot {
+  balance: number;
+  emailVerified: string | null;
+  transactions: BillingTransaction[];
+  packs: BillingPack[];
+  supportNotice: {
+    title: string;
+    description: string;
+  };
 }
 
 const PROVIDER_NAMES: Record<string, string> = {
@@ -126,6 +170,15 @@ const tabTriggerClass =
   'gap-2 rounded-xl border border-transparent px-4 py-2 text-sm font-medium text-slate-400 transition data-[state=active]:border-slate-700 data-[state=active]:bg-slate-900/90 data-[state=active]:text-slate-50 data-[state=active]:shadow-none hover:text-slate-200';
 
 const sectionCardClass = 'border-slate-800 bg-slate-950/70 text-slate-100 shadow-none';
+const defaultSupportNotice = getMonetizedSurfaceNotice();
+
+function getRequestedAccountTab(tab: string | null) {
+  if (tab === 'api-keys' || tab === 'connections' || tab === 'templates' || tab === 'billing') {
+    return tab;
+  }
+
+  return 'profile';
+}
 
 async function readResponseError(response: Response, fallback: string) {
   try {
@@ -218,13 +271,17 @@ function AccountPageContent() {
 
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState(() => getRequestedAccountTab(searchParams.get('tab')));
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [billing, setBilling] = useState<BillingSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingLoaded, setBillingLoaded] = useState(false);
   const [templateActionKey, setTemplateActionKey] = useState<string | null>(null);
   const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
   const [templateMetadataForm, setTemplateMetadataForm] = useState<TemplateMetadataForm>({
@@ -235,6 +292,7 @@ function AccountPageContent() {
   const [newApiKey, setNewApiKey] = useState('');
   const [newApiKeyProvider, setNewApiKeyProvider] = useState('openai');
   const [newApiKeyName, setNewApiKeyName] = useState('');
+  const [checkoutPackId, setCheckoutPackId] = useState<string | null>(null);
   const [addingKey, setAddingKey] = useState(false);
   const [actionNotice, setActionNotice] = useState<AccountNotice | null>(null);
 
@@ -246,37 +304,51 @@ function AccountPageContent() {
       }),
     [searchParams]
   );
+  const checkoutNotice = useMemo(() => {
+    const checkoutState = searchParams.get('checkout');
 
-  const activeNotice = actionNotice ?? queryNotice;
+    if (checkoutState === 'success') {
+      return {
+        tone: 'success',
+        title: 'Checkout complete',
+        description: 'Your payment was received. Credits will appear as soon as Stripe confirms the webhook.',
+      } satisfies AccountNotice;
+    }
+
+    return null;
+  }, [searchParams]);
+
+  const activeNotice = actionNotice ?? checkoutNotice ?? queryNotice;
   const connectionsByProvider = useMemo(
     () => new Map(connections.map((connection) => [connection.provider, connection])),
     [connections]
   );
 
   useEffect(() => {
-    if (!session) {
-      setLoading(false);
-      setActiveTab('profile');
-      setTemplates([]);
-      setTemplatesLoaded(false);
-      setTemplatesLoading(false);
-      setTemplateActionKey(null);
-      setEditingTemplateId(null);
-      setTemplateMetadataForm({ title: '', category: '' });
+    const requestedTabParam = searchParams.get('tab');
+
+    if (!requestedTabParam) {
       return;
     }
 
-    setLoading(true);
-    setName(session.user?.name || '');
-    void loadData();
-  }, [session]);
+    const requestedTab = getRequestedAccountTab(requestedTabParam);
 
-  const loadData = async () => {
+    if (requestedTab !== activeTab) {
+      setActiveTab(requestedTab);
+    }
+  }, [activeTab, searchParams]);
+
+  const loadData = useCallback(async () => {
     try {
-      const [keysRes, connRes] = await Promise.all([
+      const [profileRes, keysRes, connRes] = await Promise.all([
+        fetch('/api/account/profile'),
         fetch('/api/account/api-keys'),
         fetch('/api/account/connections'),
       ]);
+
+      if (!profileRes.ok) {
+        throw new Error(await readResponseError(profileRes, 'Failed to fetch your profile.'));
+      }
 
       if (!keysRes.ok) {
         throw new Error(await readResponseError(keysRes, 'Failed to fetch API keys.'));
@@ -286,9 +358,12 @@ function AccountPageContent() {
         throw new Error(await readResponseError(connRes, 'Failed to fetch connected services.'));
       }
 
-      const keysData = await keysRes.json();
-      const connData = await connRes.json();
+      const profileData = (await profileRes.json()) as { user?: ProfileData };
+      const keysData = (await keysRes.json()) as { keys?: ApiKey[] };
+      const connData = (await connRes.json()) as { connections?: Connection[] };
 
+      setProfile(profileData.user ?? null);
+      setName(profileData.user?.name ?? session?.user?.name ?? '');
       setApiKeys(keysData.keys || []);
       setConnections(connData.connections || []);
     } catch (error) {
@@ -301,7 +376,56 @@ function AccountPageContent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) {
+      setLoading(false);
+      setActiveTab(getRequestedAccountTab(searchParams.get('tab')));
+      setProfile(null);
+      setBilling(null);
+      setBillingLoaded(false);
+      setBillingLoading(false);
+      setTemplates([]);
+      setTemplatesLoaded(false);
+      setTemplatesLoading(false);
+      setTemplateActionKey(null);
+      setEditingTemplateId(null);
+      setTemplateMetadataForm({ title: '', category: '' });
+      return;
+    }
+
+    setLoading(true);
+    setName(session.user?.name || '');
+    void loadData();
+  }, [loadData, searchParams, session]);
+
+  const loadBilling = useCallback(async () => {
+    try {
+      setBillingLoading(true);
+      const response = await fetch('/api/account/billing', {
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error(await readResponseError(response, 'Failed to load billing data.'));
+      }
+
+      const data = (await response.json()) as BillingSnapshot;
+      setBilling(data);
+      setProfile((current) => (current ? { ...current, credits: data.balance, emailVerified: data.emailVerified } : current));
+      setBillingLoaded(true);
+    } catch (error) {
+      console.error('Failed to load billing:', error);
+      setErrorNotice(
+        'Unable to load billing',
+        error instanceof Error ? error.message : 'Please refresh the page and try again.',
+      );
+    } finally {
+      setBillingLoading(false);
+    }
+  }, []);
 
   const loadTemplates = useCallback(async () => {
     try {
@@ -339,6 +463,14 @@ function AccountPageContent() {
 
     void loadTemplates();
   }, [activeTab, loadTemplates, session, templatesLoaded, templatesLoading]);
+
+  useEffect(() => {
+    if (!session || activeTab !== 'billing' || billingLoaded || billingLoading) {
+      return;
+    }
+
+    void loadBilling();
+  }, [activeTab, billingLoaded, billingLoading, loadBilling, session]);
 
   const setSuccessNotice = (title: string, description: string) =>
     setActionNotice({ tone: 'success', title, description });
@@ -474,6 +606,54 @@ function AccountPageContent() {
         'Disconnect failed',
         error instanceof Error ? error.message : 'Please try again.'
       );
+    }
+  };
+
+  const handleResendVerification = async () => {
+    try {
+      const response = await fetch('/api/auth/verification/resend', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error(await readResponseError(response, 'Failed to resend verification email.'));
+      }
+
+      const data = (await response.json()) as { message?: string };
+      setSuccessNotice('Verification email sent', data.message || 'Check your inbox for a fresh verification link.');
+    } catch (error) {
+      console.error('Failed to resend verification email:', error);
+      setErrorNotice(
+        'Verification email failed',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
+    }
+  };
+
+  const handleBuyCredits = async (packId: string) => {
+    setCheckoutPackId(packId);
+
+    try {
+      const response = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packId }),
+      });
+
+      const data = (await response.json()) as { error?: string; url?: string };
+
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || 'Unable to start checkout.');
+      }
+
+      window.location.href = data.url;
+    } catch (error) {
+      console.error('Failed to launch checkout:', error);
+      setErrorNotice(
+        'Checkout could not start',
+        error instanceof Error ? error.message : 'Please try again.',
+      );
+      setCheckoutPackId(null);
     }
   };
 
@@ -619,9 +799,9 @@ function AccountPageContent() {
 
   const apiKeyCount = apiKeys.length;
   const connectedCount = connections.length;
-  const availableIntegrations = CONNECTIONS.length;
   const publishedTemplateCount = templates.filter((template) => template.status === 'public').length;
   const privateTemplateCount = templates.filter((template) => template.status !== 'public').length;
+  const billingSupportNotice = billing?.supportNotice ?? defaultSupportNotice;
 
   if (status === 'loading' || (session && loading)) {
     return (
@@ -850,7 +1030,7 @@ function AccountPageContent() {
                   {[
                     { label: 'API keys', value: apiKeyCount },
                     { label: 'Connected services', value: connectedCount },
-                    { label: 'Available integrations', value: availableIntegrations },
+                    { label: 'Live credits', value: profile?.credits ?? '—' },
                   ].map((item) => (
                     <div
                       key={item.label}
@@ -893,7 +1073,7 @@ function AccountPageContent() {
             {renderNotice(activeNotice)}
 
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
-              <TabsList className="grid h-auto w-full grid-cols-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-1.5">
+              <TabsList className="grid h-auto w-full grid-cols-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-1.5">
                 <TabsTrigger value="profile" className={tabTriggerClass}>
                   <User className="h-4 w-4" />
                   Profile
@@ -909,6 +1089,10 @@ function AccountPageContent() {
                 <TabsTrigger value="templates" className={tabTriggerClass}>
                   <LayoutTemplate className="h-4 w-4" />
                   My Templates
+                </TabsTrigger>
+                <TabsTrigger value="billing" className={tabTriggerClass}>
+                  <Coins className="h-4 w-4" />
+                  Billing
                 </TabsTrigger>
               </TabsList>
 
@@ -974,6 +1158,46 @@ function AccountPageContent() {
                             className="border-slate-700 bg-slate-900/80 text-slate-400"
                         />
                         <p className="text-xs text-slate-500">Email addresses are managed by your authentication provider.</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="text-sm font-medium text-slate-100">Email verification</div>
+                          <p className="mt-1 text-sm text-slate-400">
+                            Verification is recommended for account recovery and transactional email delivery, but it does not block login or renders in this slice.
+                          </p>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={
+                            profile?.emailVerified
+                              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                              : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+                          }
+                        >
+                          {profile?.emailVerified ? 'Verified' : 'Pending'}
+                        </Badge>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                        <span>
+                          {profile?.emailVerified
+                            ? `Verified ${formatTemplateDate(profile.emailVerified)}`
+                            : 'Need a new verification link?'}
+                        </span>
+                        {!profile?.emailVerified ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-slate-700 bg-transparent text-slate-100 hover:bg-slate-900"
+                            onClick={() => void handleResendVerification()}
+                          >
+                            Resend verification email
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
 
@@ -1181,6 +1405,162 @@ function AccountPageContent() {
                           </Link>
                         </Button>
                       </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="billing" className="m-0">
+                <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+                  <Card className={sectionCardClass}>
+                    <CardHeader>
+                      <CardTitle>Credits and transactions</CardTitle>
+                      <CardDescription className="text-slate-400">
+                        Live balance comes from the database-backed credit ledger, not your session payload.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      {billingLoading && !billing ? (
+                        <div className="flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/55 px-4 py-12 text-slate-300">
+                          <Loader2 className="mr-3 h-5 w-5 animate-spin text-slate-200" />
+                          Loading billing data…
+                        </div>
+                      ) : billing ? (
+                        <>
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="rounded-3xl border border-slate-800 bg-[linear-gradient(180deg,rgba(37,99,235,0.18),rgba(15,23,42,0.72))] p-5">
+                              <div className="text-[11px] uppercase tracking-[0.24em] text-blue-200">Available now</div>
+                              <div className="mt-3 text-4xl font-semibold text-slate-50">{billing.balance}</div>
+                              <p className="mt-2 text-sm text-slate-300">credits ready for new renders</p>
+                            </div>
+                            <div className="rounded-3xl border border-slate-800 bg-slate-900/60 p-5">
+                              <div className="text-[11px] uppercase tracking-[0.24em] text-slate-500">Email status</div>
+                              <div className="mt-3 text-xl font-semibold text-slate-50">
+                                {billing.emailVerified ? 'Verified' : 'Unverified'}
+                              </div>
+                              <p className="mt-2 text-sm text-slate-400">
+                                {billing.emailVerified
+                                  ? `Verified ${formatTemplateDate(billing.emailVerified)}`
+                                  : 'Verify your email to make receipts and recovery easier.'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                            <div className="text-sm font-semibold text-amber-100">{billingSupportNotice.title}</div>
+                            <p className="mt-2 text-sm leading-6 text-amber-100/80">{billingSupportNotice.description}</p>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-medium text-slate-100">Recent transactions</div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="border-slate-700 bg-transparent text-slate-100 hover:bg-slate-900"
+                                onClick={() => void loadBilling()}
+                              >
+                                Refresh
+                              </Button>
+                            </div>
+
+                            {billing.transactions.length > 0 ? (
+                              billing.transactions.map((transaction) => (
+                                <div
+                                  key={transaction.id}
+                                  className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-4 md:flex-row md:items-center md:justify-between"
+                                >
+                                  <div>
+                                    <div className="text-sm font-medium text-slate-100">
+                                      {transaction.description ?? formatTemplateStatus(transaction.type)}
+                                    </div>
+                                    <div className="mt-1 text-xs text-slate-500">
+                                      {new Date(transaction.createdAt).toLocaleString()} • Balance after:{' '}
+                                      {transaction.balanceAfter}
+                                    </div>
+                                  </div>
+                                  <div
+                                    className={`text-sm font-semibold ${
+                                      transaction.amount >= 0 ? 'text-emerald-200' : 'text-rose-200'
+                                    }`}
+                                  >
+                                    {transaction.amount >= 0 ? '+' : ''}
+                                    {transaction.amount} credits
+                                  </div>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/55 px-4 py-8 text-center text-sm text-slate-400">
+                                Your billing history will appear here after the first credit change.
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-slate-800 bg-slate-950/55 px-4 py-8 text-center text-sm text-slate-400">
+                          Billing data is unavailable right now.
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card className={sectionCardClass}>
+                    <CardHeader>
+                      <CardTitle>Buy more credits</CardTitle>
+                      <CardDescription className="text-slate-400">
+                        One-time packs only. No subscriptions, portal, or payouts in this slice.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {(billing?.packs ?? []).map((pack) => (
+                        <div
+                          key={pack.id}
+                          className={`rounded-2xl border p-4 ${
+                            pack.featured ? 'border-blue-500/30 bg-blue-500/10' : 'border-slate-800 bg-slate-900/50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold text-slate-100">{pack.name}</div>
+                              <p className="mt-1 text-sm text-slate-400">{pack.description}</p>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={
+                                pack.featured
+                                  ? 'border-blue-500/30 bg-blue-500/10 text-blue-200'
+                                  : 'border-slate-700 bg-slate-900/80 text-slate-300'
+                              }
+                            >
+                              {pack.credits} credits
+                            </Badge>
+                          </div>
+                          <div className="mt-4 flex items-center justify-between gap-3">
+                            <div className="text-2xl font-semibold text-slate-50">${(pack.priceCents / 100).toFixed(2)}</div>
+                            <Button
+                              type="button"
+                              onClick={() => void handleBuyCredits(pack.id)}
+                              disabled={checkoutPackId === pack.id}
+                            >
+                              {checkoutPackId === pack.id ? (
+                                <>
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                  Starting…
+                                </>
+                              ) : (
+                                <>
+                                  Buy credits
+                                  <ArrowRight className="ml-2 h-4 w-4" />
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                      <Button asChild variant="outline" className="w-full border-slate-700 bg-transparent text-slate-100 hover:bg-slate-900">
+                        <Link href="/pricing">Open pricing overview</Link>
+                      </Button>
                     </CardContent>
                   </Card>
                 </div>

@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, ArrowRight, Download, LayoutTemplate, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { getMonetizedSurfaceNotice } from '@/lib/support-matrix/capabilities';
 import { cn } from '@/lib/utils';
 
 interface TemplateLibraryItem {
@@ -68,6 +69,7 @@ const SORT_OPTIONS = [
   { value: 'recent', label: 'Newest first' },
   { value: 'popular', label: 'Most downloaded' },
 ] as const;
+const supportNotice = getMonetizedSurfaceNotice();
 
 function formatCategory(category: string | null) {
   if (!category) {
@@ -82,11 +84,7 @@ function titleCase(value: string) {
 }
 
 function formatPrice(priceCents: number) {
-  if (priceCents === 0) {
-    return 'Free';
-  }
-
-  return `$${(priceCents / 100).toFixed(2)}`;
+  return priceCents === 0 ? 'Free' : `$${(priceCents / 100).toFixed(2)}`;
 }
 
 function TemplatesPageContent() {
@@ -250,16 +248,16 @@ function TemplatesPageContent() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-5">
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-5">
               <div className="flex items-center gap-3">
-                <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-2.5 text-slate-100">
+                <div className="rounded-2xl border border-amber-500/30 bg-amber-500/20 p-2.5 text-amber-100">
                   <Download className="h-4 w-4" />
                 </div>
                 <div>
-                  <div className="text-sm font-semibold text-slate-100">
-                    {isLoading ? 'Checking complimentary presets...' : `${freeTemplates} complimentary preset${freeTemplates === 1 ? '' : 's'}`}
+                  <div className="text-sm font-semibold text-amber-100">
+                    {isLoading ? 'Checking complimentary presets...' : `${freeTemplates} free public preset${freeTemplates === 1 ? '' : 's'}`}
                   </div>
-                  <div className="text-xs text-slate-500">Open a template, fill the placeholders, then continue in the editor.</div>
+                  <div className="text-xs text-amber-100/75">{supportNotice.description}</div>
                 </div>
               </div>
             </div>
@@ -429,8 +427,10 @@ function TemplatesPageContent() {
 
                   <CardContent className="flex items-center justify-between pt-0">
                     <div>
-                      <div className="text-lg font-semibold text-slate-50">{formatPrice(template.priceCents)}</div>
-                      <div className="text-xs uppercase tracking-[0.24em] text-slate-500">Template access</div>
+                      <div className="text-lg font-semibold text-slate-50">{template.priceCents === 0 ? 'Free' : formatPrice(template.priceCents)}</div>
+                      <div className="text-xs uppercase tracking-[0.24em] text-slate-500">
+                        {template.priceCents === 0 ? 'Public access' : 'Private draft only'}
+                      </div>
                     </div>
 
                     <div className="text-right">

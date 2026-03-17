@@ -1,20 +1,14 @@
 import { Queue, Worker, Job } from 'bullmq';
-import { renderHeadlessComposition } from '../../render/webgl-renderer';
+import { renderHeadlessComposition } from '@/render/webgl-renderer';
 import { resolveRenderResolution } from '@/render/render-config';
-
-export interface RenderJobData {
-  renderId: number;
-  vidscript: string;
-  resolution: string;
-  userId: number;
-}
+import type { RenderJobPayload } from '@/lib/render-dispatch/types';
 
 const connection = {
   host: process.env.REDIS_HOST || 'localhost',
   port: parseInt(process.env.REDIS_PORT || '6379'),
 };
 
-export const renderQueue = new Queue<RenderJobData>('video-render', {
+export const renderQueue = new Queue<RenderJobPayload>('video-render', {
   connection,
   defaultJobOptions: {
     attempts: 3,
@@ -28,23 +22,24 @@ export const renderQueue = new Queue<RenderJobData>('video-render', {
 });
 
 export function startRenderWorker() {
-  const worker = new Worker<RenderJobData>(
+  const worker = new Worker<RenderJobPayload>(
     'video-render',
-    async (job: Job<RenderJobData>) => {
-      const { renderId, vidscript, resolution, userId } = job.data;
-      
+    async (job: Job<RenderJobPayload>) => {
+      const { renderId, vidscript, resolution, userId, baseUrl } = job.data;
+
       console.log(`Starting render ${renderId} for user ${userId}`);
-      
+
       try {
         await renderHeadlessComposition({
           renderId,
           vidscript,
           resolution: resolveRenderResolution(resolution).resolution,
+          baseUrl,
           onProgress: (progress: number) => {
             job.updateProgress(progress);
           },
         });
-        
+
         return { success: true };
       } catch (error) {
         console.error(`Render ${renderId} failed:`, error);
@@ -68,7 +63,7 @@ export function startRenderWorker() {
   return worker;
 }
 
-export async function addRenderJob(data: RenderJobData): Promise<string> {
+export async function addRenderJob(data: RenderJobPayload): Promise<string> {
   const job = await renderQueue.add('render', data);
   return job.id!;
 }

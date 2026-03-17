@@ -85,7 +85,7 @@ export function AssetLibrary({ onInsertAsset, mode = 'panel' }: AssetLibraryProp
         throw new Error('Failed to fetch local assets');
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as { assets?: Asset[] };
       setLocalAssets(data.assets || []);
     } catch (error) {
       console.error('Failed to load assets:', error);
@@ -103,7 +103,7 @@ export function AssetLibrary({ onInsertAsset, mode = 'panel' }: AssetLibraryProp
         throw new Error('Failed to fetch sample assets');
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as { assets?: Asset[] };
       setSampleAssets(data.assets || []);
     } catch (error) {
       console.error('Failed to load sample assets:', error);
@@ -123,7 +123,7 @@ export function AssetLibrary({ onInsertAsset, mode = 'panel' }: AssetLibraryProp
         throw new Error('Failed to fetch Google Drive files');
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as { files?: CloudFile[] };
       setGdriveFiles(data.files || []);
     } catch (error) {
       console.error('Failed to load Google Drive files:', error);
@@ -143,7 +143,7 @@ export function AssetLibrary({ onInsertAsset, mode = 'panel' }: AssetLibraryProp
         throw new Error('Failed to fetch Dropbox files');
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as { files?: CloudFile[] };
       setDropboxFiles(data.files || []);
     } catch (error) {
       console.error('Failed to load Dropbox files:', error);
@@ -165,7 +165,9 @@ export function AssetLibrary({ onInsertAsset, mode = 'panel' }: AssetLibraryProp
         throw new Error('Failed to fetch connections');
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as {
+        connections?: Array<{ provider: string }>;
+      };
       const connectionMap: Record<string, unknown> = {};
       data.connections?.forEach((connection: { provider: string }) => {
         connectionMap[connection.provider] = connection;

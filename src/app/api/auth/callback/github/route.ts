@@ -6,6 +6,12 @@ import { getSafeCallbackPath } from '@/lib/integrations/oauth-state';
 
 export const dynamic = 'force-dynamic';
 
+interface GitHubTokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
   const requestUrl = new URL(request.url);
@@ -35,7 +41,7 @@ export async function GET(request: Request) {
       }),
     });
 
-    const tokenData = await tokenResponse.json();
+    const tokenData = (await tokenResponse.json()) as GitHubTokenResponse;
     if (!tokenResponse.ok || !tokenData.access_token) {
       throw new Error(tokenData.error_description || tokenData.error || 'GitHub token exchange failed');
     }

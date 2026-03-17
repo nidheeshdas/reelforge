@@ -19,6 +19,14 @@ enum TemplateStatus {
   archived
 }
 
+enum CreditTransactionType {
+  signup_bonus
+  stripe_purchase
+  render_debit
+  render_refund
+  admin_adjustment
+}
+
 model User {
   id              Int       @id @default(autoincrement())
   email           String    @unique
@@ -29,18 +37,22 @@ model User {
   credits         Int       @default(5)
   isCreator       Boolean   @default(false)
   stripeConnectId String?
+  stripeCustomerId String?  @unique
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  templates     Template[]
-  assets        Asset[]
-  shaders       Shader[]
-  renders       Render[]
-  purchases     Purchase[]
-  accounts      Account[]
-  sessions      Session[]
-  apiKeys       ApiKey[]
-  connectedApps ConnectedApp[]
+  templates               Template[]
+  assets                  Asset[]
+  shaders                 Shader[]
+  renders                 Render[]
+  purchases               Purchase[]
+  accounts                Account[]
+  sessions                Session[]
+  apiKeys                 ApiKey[]
+  connectedApps           ConnectedApp[]
+  creditTransactions      CreditTransaction[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
 }
 
 model Template {
@@ -138,6 +150,65 @@ model Purchase {
   createdAt          DateTime @default(now())
 
   @@unique([buyerId, templateId])
+}
+
+model CreditTransaction {
+  id                    String                @id @default(cuid())
+  userId                Int
+  user                  User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type                  CreditTransactionType
+  amount                Int
+  balanceAfter          Int
+  description           String?
+  packId                String?
+  packName              String?
+  renderId              Int?
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId String?
+  metadata              Json?
+  createdAt             DateTime              @default(now())
+
+  @@index([userId, createdAt])
+  @@unique([renderId, type])
+  @@unique([stripeCheckoutSessionId, type])
+}
+
+model StripeWebhookEvent {
+  id            String   @id @default(cuid())
+  stripeEventId String   @unique
+  type          String
+  status        String   @default("received")
+  payload       Json
+  lastError     String?
+  processedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([type, createdAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
 }
 
 model Account {

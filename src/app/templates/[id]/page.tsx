@@ -7,6 +7,7 @@ import { ArrowLeft, LayoutTemplate, Loader2, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { getMonetizedSurfaceNotice, getTemplateMediaDisclaimer } from '@/lib/support-matrix/capabilities';
 import { extractPlaceholders, fillPlaceholders } from '@/parser';
 import { cn } from '@/lib/utils';
 
@@ -117,6 +118,8 @@ const fieldClassName =
 
 const selectClassName =
   'flex h-9 w-full rounded-md border border-slate-700 bg-slate-950/70 px-3 py-1 text-sm text-slate-100 shadow-none transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400 disabled:cursor-not-allowed disabled:opacity-50';
+const supportNotice = getMonetizedSurfaceNotice();
+const templateMediaDisclaimer = getTemplateMediaDisclaimer();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -568,12 +571,12 @@ export default function TemplateDetailPage(props: { params: Promise<{ id: string
                   <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
                     <div className="text-xs uppercase tracking-[0.24em] text-slate-500">Price</div>
                     <div className="mt-2 text-3xl font-semibold text-slate-50">
-                      {template.priceCents === 0 ? 'Free' : `$${(template.priceCents / 100).toFixed(2)}`}
+                      {template.priceCents === 0 ? 'Free public template' : `$${(template.priceCents / 100).toFixed(2)} draft`}
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
                       {template.priceCents === 0
                         ? 'Free public templates can be opened immediately.'
-                        : 'Purchase flow can layer on top of this detail view later.'}
+                        : 'Template checkout and entitlements are out of scope in the current product slice.'}
                     </p>
                   </div>
 
@@ -592,6 +595,11 @@ export default function TemplateDetailPage(props: { params: Promise<{ id: string
                   <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-words text-xs leading-6 text-slate-400">
                     {template.vidscript}
                   </pre>
+                </div>
+
+                <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+                  <div className="text-sm font-semibold text-amber-100">{supportNotice.title}</div>
+                  <p className="mt-2 text-xs leading-6 text-amber-100/80">{templateMediaDisclaimer}</p>
                 </div>
               </CardContent>
             </Card>
@@ -710,7 +718,7 @@ export default function TemplateDetailPage(props: { params: Promise<{ id: string
                             {(placeholder.type === 'video' || placeholder.type === 'audio') && (
                               <p>
                                 Media placeholders import as script references. You can fine-tune assets inside the editor after this handoff.
-                                {placeholder.accept ? ` Accepted formats: ${placeholder.accept}.` : ''}
+                                {placeholder.accept ? ` Accepted formats: ${placeholder.accept}.` : ''} {templateMediaDisclaimer}
                               </p>
                             )}
                             {placeholder.defaultValue !== undefined && (
@@ -727,7 +735,7 @@ export default function TemplateDetailPage(props: { params: Promise<{ id: string
               )}
 
               <button onClick={handleUseTemplate} className="btn btn-primary btn-lg w-full">
-                {template.priceCents === 0 ? 'Use Template' : 'Purchase & Use'}
+                Use Template
               </button>
             </CardContent>
           </Card>

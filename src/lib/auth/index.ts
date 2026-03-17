@@ -74,6 +74,35 @@ export const authOptions: NextAuthOptions = {
       return session;
     },
   },
+  events: {
+    async createUser({ user }) {
+      const userId = Number.parseInt(String(user.id), 10);
+
+      if (Number.isNaN(userId)) {
+        return;
+      }
+
+      const existingSignupTransaction = await prisma.creditTransaction.findFirst({
+        where: {
+          userId,
+          type: 'signup_bonus',
+        },
+        select: { id: true },
+      });
+
+      if (!existingSignupTransaction) {
+        await prisma.creditTransaction.create({
+          data: {
+            userId,
+            type: 'signup_bonus',
+            amount: 5,
+            balanceAfter: 5,
+            description: 'Welcome credits',
+          },
+        });
+      }
+    },
+  },
   pages: {
     signIn: '/auth/login',
     error: '/auth/error',

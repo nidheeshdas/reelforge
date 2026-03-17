@@ -32,6 +32,16 @@ export interface GitHubCommit {
   };
 }
 
+interface GitHubApiError {
+  message?: string;
+}
+
+interface GitHubUser {
+  login?: string;
+  name?: string;
+  email?: string;
+}
+
 export class GitHubService {
   private accessToken: string;
 
@@ -57,7 +67,7 @@ export class GitHubService {
       throw new Error(`Failed to fetch repos: ${response.statusText}`);
     }
     
-    return response.json();
+    return (await response.json()) as GitHubRepo[];
   }
 
   async getRepo(owner: string, repo: string): Promise<GitHubRepo> {
@@ -67,7 +77,7 @@ export class GitHubService {
       throw new Error(`Failed to fetch repo: ${response.statusText}`);
     }
     
-    return response.json();
+    return (await response.json()) as GitHubRepo;
   }
 
   async getContents(owner: string, repo: string, path: string = ''): Promise<GitHubContent[]> {
@@ -79,7 +89,7 @@ export class GitHubService {
       throw new Error(`Failed to fetch contents: ${response.statusText}`);
     }
     
-    const data = await response.json();
+    const data = (await response.json()) as GitHubContent[] | GitHubContent;
     return Array.isArray(data) ? data : [data];
   }
 
@@ -92,7 +102,7 @@ export class GitHubService {
       throw new Error(`Failed to fetch file: ${response.statusText}`);
     }
     
-    const data = await response.json();
+    const data = (await response.json()) as { content?: string };
     
     if (data.content) {
       return Buffer.from(data.content, 'base64').toString('utf-8');
@@ -111,7 +121,7 @@ export class GitHubService {
         return null;
       }
       
-      const data = await response.json();
+      const data = (await response.json()) as { sha?: string };
       return data.sha;
     } catch {
       return null;
@@ -150,7 +160,7 @@ export class GitHubService {
     );
     
     if (!response.ok) {
-      const error = await response.json();
+      const error = (await response.json()) as GitHubApiError;
       throw new Error(`Failed to save file: ${error.message || response.statusText}`);
     }
   }
@@ -164,7 +174,7 @@ export class GitHubService {
       throw new Error(`Failed to fetch history: ${response.statusText}`);
     }
     
-    return response.json();
+    return (await response.json()) as GitHubCommit[];
   }
 
   async getUser(): Promise<{ login: string; name: string; email: string }> {
@@ -174,7 +184,13 @@ export class GitHubService {
       throw new Error(`Failed to fetch user: ${response.statusText}`);
     }
     
-    return response.json();
+    const user = (await response.json()) as GitHubUser;
+
+    return {
+      login: user.login || '',
+      name: user.name || '',
+      email: user.email || '',
+    };
   }
 }
 

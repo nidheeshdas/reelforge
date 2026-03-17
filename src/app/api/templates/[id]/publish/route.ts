@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 import { parseTemplateId, templateDetailSelect, type TemplateRouteContext } from '@/lib/templates/api';
+import { getPublicTemplatePublishError } from '@/lib/templates/access';
 import { getTemplateLifecycleUpdate } from '@/lib/templates/validation';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +29,7 @@ export async function POST(_: Request, { params }: TemplateRouteContext) {
       select: {
         id: true,
         creatorId: true,
+        priceCents: true,
         publishedAt: true,
       },
     });
@@ -38,6 +40,11 @@ export async function POST(_: Request, { params }: TemplateRouteContext) {
 
     if (existingTemplate.creatorId !== userId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const publishError = getPublicTemplatePublishError(existingTemplate.priceCents);
+    if (publishError) {
+      return NextResponse.json({ error: publishError }, { status: 400 });
     }
 
     const template = await prisma.template.update({

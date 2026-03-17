@@ -45,7 +45,9 @@ export default function GitHubBrowserPage() {
     try {
       const response = await fetch('/api/account/connections');
       if (response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as {
+          connections?: Array<{ provider: string }>;
+        };
         const github = data.connections?.find((c: { provider: string }) => c.provider === 'github');
         if (github) {
           loadRepos();
@@ -65,7 +67,7 @@ export default function GitHubBrowserPage() {
     try {
       const response = await fetch('/api/integrations/github/repos');
       if (response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as { repos?: Repo[] };
         setRepos(data.repos || []);
       }
     } catch (error) {
@@ -92,7 +94,7 @@ export default function GitHubBrowserPage() {
       const url = `/api/integrations/github/repos/${fullName.split('/')[0]}/${fullName.split('/')[1]}/contents?path=${path}`;
       const response = await fetch(url);
       if (response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as { contents?: Content[] };
         setContents(data.contents || []);
       }
     } catch (error) {
@@ -130,7 +132,7 @@ export default function GitHubBrowserPage() {
       const url = `/api/integrations/github/file/${selectedRepo.full_name.split('/')[0]}/${selectedRepo.full_name.split('/')[1]}?path=${content.path}`;
       const response = await fetch(url);
       if (response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as { content?: string };
         setSelectedFile(content);
         setFileContent(data.content || '');
       }

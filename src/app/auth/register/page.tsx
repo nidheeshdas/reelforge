@@ -47,14 +47,14 @@ export default function RegisterPage() {
         body: JSON.stringify({ name, email, password }),
       });
 
-      const data = await response.json();
+      const data = (await response.json()) as { error?: string };
 
       if (!response.ok) {
         setError(data.error || 'Registration failed');
         return;
       }
 
-      router.push('/auth/login?registered=true');
+      router.push('/auth/login?registered=true&verification=sent');
     } catch (err) {
       setError('An error occurred. Please try again.');
     } finally {
@@ -65,12 +65,12 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
       <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Create your account</CardTitle>
-          <CardDescription>
-            Get started with ReelForge
-          </CardDescription>
-        </CardHeader>
+          <CardHeader className="text-center">
+            <CardTitle className="text-2xl font-bold">Create your account</CardTitle>
+            <CardDescription>
+              Get started with ReelForge. You&apos;ll receive a lightweight verification email after signup.
+            </CardDescription>
+          </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
@@ -153,6 +153,14 @@ export default function RegisterPage() {
               {loading ? 'Creating account...' : 'Create account'}
             </Button>
           </form>
+
+          <p className="mt-4 text-center text-xs leading-6 text-gray-500">
+            By creating an account, you also acknowledge the{' '}
+            <Link href="/privacy" className="text-blue-600 hover:underline">
+              Privacy Policy
+            </Link>
+            .
+          </p>
 
           <p className="mt-6 text-center text-sm text-gray-600">
             Already have an account?{' '}

@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 import { parseTemplateId, templateDetailSelect, type TemplateRouteContext } from '@/lib/templates/api';
+import { getPublicTemplatePublishError, isTemplatePubliclyAccessible } from '@/lib/templates/access';
 import { isPublicTemplateStatus } from '@/lib/templates/status';
 import {
   getTemplateLifecycleUpdate,
@@ -35,7 +36,13 @@ export async function GET(_: Request, { params }: TemplateRouteContext) {
       return NextResponse.json({ error: 'Template not found' }, { status: 404 });
     }
 
-    if (!isPublicTemplateStatus(template.status) && template.creatorId !== userId) {
+    const isPubliclyReadable = isTemplatePubliclyAccessible(template.priceCents, template.status);
+
+    if (!isPubliclyReadable && !isPublicTemplateStatus(template.status) && template.creatorId !== userId) {
+      return NextResponse.json({ error: 'Template not found' }, { status: 404 });
+    }
+
+    if (!isPubliclyReadable && template.creatorId !== userId) {
       return NextResponse.json({ error: 'Template not found' }, { status: 404 });
     }
 
@@ -67,6 +74,7 @@ export async function PUT(request: Request, { params }: TemplateRouteContext) {
       select: {
         id: true,
         creatorId: true,
+        priceCents: true,
         status: true,
         publishedAt: true,
       },
@@ -91,6 +99,14 @@ export async function PUT(request: Request, { params }: TemplateRouteContext) {
     }
 
     const data = validation.data;
+    const nextStatus = data.status ?? existingTemplate.status;
+    const nextPriceCents = data.priceCents ?? existingTemplate.priceCents;
+    const publishError = nextStatus === 'public' ? getPublicTemplatePublishError(nextPriceCents) : null;
+
+    if (publishError) {
+      return NextResponse.json({ error: publishError }, { status: 400 });
+    }
+
     const updateData: Prisma.TemplateUpdateInput = {};
 
     if (data.title !== undefined) updateData.title = data.title.trim();

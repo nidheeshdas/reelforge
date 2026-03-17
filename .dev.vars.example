@@ -1,0 +1,3 @@
+# Cloudflare local-only variables for `opennextjs-cloudflare preview` / `wrangler dev`
+NEXTJS_ENV="development"
+RENDER_DISPATCH_MODE="cloudflare-queue"

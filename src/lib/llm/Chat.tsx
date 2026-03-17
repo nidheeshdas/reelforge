@@ -48,8 +48,8 @@ export function LLMChat({ onInsertCode, apiKey }: LLMChatProps) {
         throw new Error('Failed to get response');
       }
       
-      const data = await response.json();
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.response }]);
+      const data = (await response.json()) as { response?: string };
+      setMessages((prev) => [...prev, { role: 'assistant', content: data.response ?? '' }]);
     } catch (error) {
       setMessages((prev) => [
         ...prev,

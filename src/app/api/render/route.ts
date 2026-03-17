@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/db/prisma';
 import { requireSessionUserId } from '@/lib/auth/session';
-import { renderHeadlessComposition } from '@/render/webgl-renderer';
+import { createRenderWithDebit, InsufficientCreditsError } from '@/lib/billing/ledger';
+import { RENDER_CREDIT_COST } from '@/lib/billing/catalog';
+import { dispatchRenderJob } from '@/lib/render-dispatch';
+import { createRenderJobPayload } from '@/lib/render-dispatch/types';
 import { extractRenderScriptConfig } from '@/render/render-config';
+import prisma from '@/lib/db/prisma';
 
 function getBaseUrl(request: NextRequest): string {
   const forwardedProto = request.headers.get('x-forwarded-proto');
@@ -23,7 +26,10 @@ export async function POST(request: NextRequest) {
       return auth.response;
     }
 
-    const body = await request.json();
+    const body = (await request.json()) as {
+      vidscript?: string;
+      resolution?: string;
+    };
     const { vidscript, resolution } = body;
 
     if (!vidscript) {
@@ -36,76 +42,44 @@ export async function POST(request: NextRequest) {
     );
     const baseUrl = getBaseUrl(request);
 
-    const render = await prisma.render.create({
-      data: {
-        userId: auth.userId,
-        vidscript,
-        status: 'pending',
-        progress: 0,
-        resolution: renderConfig.resolutionKey,
-      },
+    const { render } = await createRenderWithDebit({
+      userId: auth.userId,
+      vidscript,
+      resolution: renderConfig.resolutionKey,
     });
 
-    void (async () => {
-      try {
-        await prisma.render.update({
-          where: { id: render.id },
-          data: {
-            status: 'processing',
-            progress: 1,
-            errorMessage: null,
-          },
-        });
-
-        const outputPath = await renderHeadlessComposition({
-          renderId: render.id,
-          vidscript,
-          resolution: renderConfig.resolution,
-          baseUrl,
-          onProgress: async (progress) => {
-            try {
-              await prisma.render.update({
-                where: { id: render.id },
-                data: {
-                  progress: Math.min(progress, 99),
-                  status: 'processing',
-                },
-              });
-            } catch (updateError) {
-              console.error('Failed to update render progress:', updateError);
-            }
-          },
-        });
-
-        await prisma.render.update({
-          where: { id: render.id },
-          data: {
-            status: 'completed',
-            progress: 100,
-            outputPath,
-            errorMessage: null,
-            completedAt: new Date(),
-          },
-        });
-      } catch (error) {
-        console.error('Render failed:', error);
-        await prisma.render.update({
-          where: { id: render.id },
-          data: {
-            status: 'failed',
-            errorMessage: error instanceof Error ? error.message : 'Unknown error',
-          },
-        });
-      }
-    })();
+    const dispatch = await dispatchRenderJob(
+      createRenderJobPayload({
+        renderId: render.id,
+        userId: auth.userId,
+        vidscript,
+        resolution: renderConfig.resolutionKey,
+        baseUrl,
+      })
+    );
 
     return NextResponse.json({
       renderId: render.id,
-      status: render.status,
+      status: dispatch.queued ? 'queued' : render.status,
       resolution: renderConfig.resolutionKey,
       outputFilename: renderConfig.outputFilename,
+      dispatchMode: dispatch.mode,
+      queueJobId: dispatch.jobId ?? null,
     });
   } catch (error) {
+    if (error instanceof InsufficientCreditsError) {
+      return NextResponse.json(
+        {
+          error: 'Insufficient credits',
+          code: error.code,
+          creditsRequired: error.required,
+          creditsAvailable: error.available,
+          renderCreditCost: RENDER_CREDIT_COST,
+        },
+        { status: error.status },
+      );
+    }
+
     console.error('Create render error:', error);
     return NextResponse.json(
       { error: 'Failed to create render' },

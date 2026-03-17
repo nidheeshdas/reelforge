@@ -195,6 +195,12 @@ export default function Home() {
                 Templates
               </Link>
               <Link
+                href="/pricing"
+                className="rounded-full px-3 py-2 transition-colors hover:bg-card hover:text-foreground"
+              >
+                Pricing
+              </Link>
+              <Link
                 href="/assets"
                 className="rounded-full px-3 py-2 transition-colors hover:bg-card hover:text-foreground"
               >

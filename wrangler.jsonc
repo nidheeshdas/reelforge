@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "reelforge-app",
+  "compatibility_date": "2025-03-25",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "reelforge-app"
+    },
+    {
+      "binding": "RENDER_CONTROL",
+      "service": "reelforge-render-control"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "RENDER_QUEUE",
+        "queue": "reelforge-render-jobs"
+      }
+    ]
+  },
+  "vars": {
+    "RENDER_DISPATCH_MODE": "cloudflare-queue",
+    "RENDER_QUEUE_NAME": "reelforge-render-jobs"
+  },
+  "images": {
+    "binding": "IMAGES"
+  }
+}

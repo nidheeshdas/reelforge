@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
 import { templateDetailSelect, templateListSelect } from '@/lib/templates/api';
+import { getPublicTemplatePublishError, getPublicTemplateWhere } from '@/lib/templates/access';
 import {
   createTemplateSchema,
   getPublishedAtForStatus,
@@ -24,7 +25,7 @@ export async function GET(request: Request) {
     const where: Prisma.TemplateWhereInput = {};
 
     if (scope === 'public') {
-      where.status = 'public';
+      Object.assign(where, getPublicTemplateWhere());
     } else if (scope === 'mine') {
       if (!session?.user?.id) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -78,6 +79,12 @@ export async function POST(request: Request) {
 
     const data = validation.data;
     const status = data.status ?? 'draft';
+    const publishError = getPublicTemplatePublishError(data.priceCents ?? 0);
+
+    if (status === 'public' && publishError) {
+      return NextResponse.json({ error: publishError }, { status: 400 });
+    }
+
     const createData: Prisma.TemplateUncheckedCreateInput = {
       creatorId: userId,
       title: data.title.trim(),

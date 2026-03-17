@@ -56,7 +56,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'GitHub not connected' }, { status: 400 });
     }
     
-    const { owner, repo, path, content, message } = await request.json();
+    const { owner, repo, path, content, message } = (await request.json()) as {
+      owner?: string;
+      repo?: string;
+      path?: string;
+      content?: string;
+      message?: string;
+    };
     
     if (!owner || !repo || !path || !content || !message) {
       return NextResponse.json(

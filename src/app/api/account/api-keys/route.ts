@@ -45,7 +45,11 @@ export async function POST(request: Request) {
     }
     
     const userId = parseInt(session.user.id);
-    const { provider, key, name } = await request.json();
+    const { provider, key, name } = (await request.json()) as {
+      provider?: string;
+      key?: string;
+      name?: string;
+    };
     
     if (!provider || !key) {
       return NextResponse.json(

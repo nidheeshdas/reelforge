@@ -14,11 +14,29 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/editor';
+  const registered = searchParams.get('registered') === 'true';
+  const verificationState = searchParams.get('verification');
+  const resetState = searchParams.get('reset');
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const statusMessage =
+    verificationState === 'verified'
+      ? { tone: 'success', text: 'Email verified. You can sign in normally.' }
+      : verificationState === 'sent'
+        ? { tone: 'success', text: 'Account created. Check your inbox for a verification link.' }
+        : verificationState === 'invalid'
+          ? { tone: 'error', text: 'That verification link is invalid or expired.' }
+          : verificationState === 'error'
+            ? { tone: 'error', text: 'We could not verify your email right now.' }
+            : resetState === 'success'
+              ? { tone: 'success', text: 'Password updated. Sign in with your new password.' }
+              : registered
+                ? { tone: 'success', text: 'Account created. You can sign in now.' }
+                : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,6 +78,17 @@ function LoginForm() {
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {statusMessage && (
+              <div
+                className={`text-sm p-3 rounded-md ${
+                  statusMessage.tone === 'success'
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-red-50 text-red-600'
+                }`}
+              >
+                {statusMessage.text}
+              </div>
+            )}
             {error && (
               <div className="bg-red-50 text-red-600 text-sm p-3 rounded-md">
                 {error}
@@ -98,6 +127,12 @@ function LoginForm() {
               {loading ? 'Signing in...' : 'Sign in'}
             </Button>
           </form>
+
+          <div className="mt-3 text-right text-sm">
+            <Link href="/auth/forgot-password" className="text-blue-600 hover:underline">
+              Forgot your password?
+            </Link>
+          </div>
 
           <div className="mt-6">
             <div className="relative">
@@ -141,6 +176,17 @@ function LoginForm() {
             <Link href="/auth/register" className="text-blue-600 hover:underline">
               Sign up
             </Link>
+          </p>
+          <p className="mt-3 text-center text-xs text-gray-500">
+            Need the fine print? Review our{' '}
+            <Link href="/terms" className="text-blue-600 hover:underline">
+              Terms
+            </Link>{' '}
+            and{' '}
+            <Link href="/privacy" className="text-blue-600 hover:underline">
+              Privacy Policy
+            </Link>
+            .
           </p>
         </CardContent>
       </Card>

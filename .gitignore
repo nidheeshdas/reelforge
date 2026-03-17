@@ -1,6 +1,11 @@
 node_modules/
 .next/
+.open-next/
+.wrangler/
 .env
+.dev.vars
+cloudflare/worker-configuration.d.ts
+cloudflare/render-worker/worker-configuration.d.ts
 playwright-report
 test-results
 public/renders

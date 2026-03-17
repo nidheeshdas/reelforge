@@ -22,6 +22,7 @@ export async function GET() {
         name: true,
         email: true,
         credits: true,
+        emailVerified: true,
         isCreator: true,
         createdAt: true,
       },
@@ -46,7 +47,7 @@ export async function PUT(request: Request) {
     }
     
     const userId = parseInt(session.user.id);
-    const { name } = await request.json();
+    const { name } = (await request.json()) as { name?: string | null };
     
     const user = await prisma.user.update({
       where: { id: userId },
@@ -58,6 +59,7 @@ export async function PUT(request: Request) {
         id: user.id,
         name: user.name,
         email: user.email,
+        emailVerified: user.emailVerified,
       },
     });
   } catch (error) {

@@ -58,7 +58,10 @@ Remember: Always write valid, executable VidScript code.`;
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, apiKey } = await request.json();
+    const { message, apiKey } = (await request.json()) as {
+      message?: string;
+      apiKey?: string;
+    };
     
     if (!apiKey) {
       return NextResponse.json(
@@ -73,7 +76,7 @@ export async function POST(request: NextRequest) {
       model: 'gpt-4',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: message },
+        { role: 'user', content: message ?? '' },
       ],
       temperature: 0.3,
       max_tokens: 1000,

@@ -113,6 +113,11 @@ test.describe('Account Page', () => {
     await page.getByRole('tab', { name: 'Connections' }).click();
     await expect(page.getByRole('button', { name: 'Connect' }).first()).toBeVisible();
     await expect(page.getByText('R2 is the planned shared object-storage backend')).toBeVisible();
+
+    await page.getByRole('tab', { name: 'Billing' }).click();
+    await expect(page.getByText('Credits and transactions')).toBeVisible();
+    await expect(page.getByText('Live balance comes from the database-backed credit ledger')).toBeVisible();
+    await expect(page.getByText('credits ready for new renders')).toBeVisible();
   });
 
   test('shows and manages templates from the signed-in account workspace', async ({ page, request }) => {
@@ -130,8 +135,6 @@ test.describe('Account Page', () => {
 
     await page.getByRole('tab', { name: 'My Templates' }).click();
 
-    await expect(page.getByText('My templates', { exact: true })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Browse library' })).toBeVisible();
     await expect(page.getByText(templateTitle, { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Publish' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Open in editor' })).toBeVisible();

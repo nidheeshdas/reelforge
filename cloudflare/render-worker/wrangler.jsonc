@@ -1,0 +1,43 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "reelforge-render-control",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-03-25",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "class_name": "RenderContainer",
+      "image": "./Dockerfile",
+      "max_instances": 4
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RENDER_CONTAINER",
+        "class_name": "RenderContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RenderContainer"]
+    }
+  ],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "reelforge-render-jobs",
+        "max_batch_size": 4,
+        "max_batch_timeout": 10,
+        "max_retries": 5,
+        "dead_letter_queue": "reelforge-render-jobs-dlq"
+      }
+    ]
+  },
+  "vars": {
+    "RENDER_QUEUE_NAME": "reelforge-render-jobs",
+    "RENDER_QUEUE_DLQ_NAME": "reelforge-render-jobs-dlq"
+  }
+}

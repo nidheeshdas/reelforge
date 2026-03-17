@@ -20,35 +20,39 @@ npm run dev
 
 ## Tech Stack
 
-- **Frontend**: Next.js 14 (App Router)
+- **Frontend**: Next.js 16 (App Router)
 - **Backend**: Next.js API routes
 - **Database**: PostgreSQL + Prisma
 - **Parser**: Peggy (PEG grammar)
 - **Rendering**: Three.js + headless-gl + WebCodecs
 - **Shaders**: Custom GLSL library
+- **Deployment targets**: Docker today, Cloudflare Workers/Containers/Queues scaffolded side-by-side
 
 ## Project Structure
 
 ```
 src/
 ├── app/                    # Next.js app router
-│   ├── api/               # API routes
-│   ├── editor/            # Code editor page
-│   └── templates/        # Template gallery
+│   ├── api/                # API routes
+│   ├── editor/             # Code editor page
+│   └── templates/          # Template gallery
 ├── lib/
-│   ├── db/                # Prisma client
-│   ├── auth/              # NextAuth config
-│   ├── queue/             # BullMQ queue
-│   └── llm/               # LLM service
+│   ├── auth/               # NextAuth config
+│   ├── billing/            # Credits + Stripe ledgering
+│   ├── db/                 # Prisma client
+│   ├── queue/              # Legacy BullMQ queue path
+│   └── render-dispatch/    # Render dispatch seam (inline / BullMQ / Cloudflare Queue)
 ├── parser/
-│   ├── vidscript.peggy   # PEG grammar
-│   └── index.ts           # Parser wrapper
+│   ├── vidscript.peggy     # PEG grammar
+│   └── index.ts            # Parser wrapper
 ├── render/
-│   └── worker.ts          # Video render worker
-├── shaders/
-│   └── library.ts         # Built-in GLSL shaders
+│   ├── webgl-renderer.ts   # Headless WebGL export runtime
+│   └── worker.ts           # Older ffmpeg render worker path
 └── types/
-    └── vidscript.ts       # TypeScript types
+    └── vidscript.ts        # TypeScript types
+
+cloudflare/
+└── render-worker/          # Cloudflare Queues + Containers control worker scaffold
 ```
 
 ## VidScript Syntax
@@ -88,7 +92,8 @@ Copy `.env.example` to `.env` and configure:
 - `FFMPEG_PATH` / `FFPROBE_PATH` - Optional overrides if `ffmpeg` and `ffprobe` are not on the default PATH. The production Docker image installs both at `/usr/bin`.
 - `UPLOAD_DIR` - Directory for uploaded assets. Defaults to `./public/uploads`. Mount this as persistent storage in production.
 - `RENDER_DIR` - Directory for generated render artifacts. Defaults to `./public/renders`. Mount this as persistent storage in production.
-- `REDIS_HOST` / `REDIS_PORT` - Redis connection settings for the existing queue-related code paths.
+- `REDIS_HOST` / `REDIS_PORT` - Redis connection settings for the legacy BullMQ queue path.
+- `RENDER_DISPATCH_MODE` - `inline` by default. The new dispatch seam also supports `bullmq` and `cloudflare-queue` when those runtimes are enabled.
 
 ### Optional integrations
 
@@ -97,6 +102,7 @@ Copy `.env.example` to `.env` and configure:
 - `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` - Dropbox OAuth credentials for Dropbox import.
 - `OPENAI_API_KEY` / `NEXT_PUBLIC_OPENAI_API_KEY` - Optional LLM integration keys.
 - `R2_*` - Planned object-storage settings. This deployment slice does **not** switch uploads/renders to R2 yet.
+- `REELFORGE_INTERNAL_TOKEN` - Shared secret reserved for future signed callbacks between the app Worker and render-control Worker/container.
 
 ## Development
 
@@ -111,9 +117,9 @@ npm run db:migrate
 node src/lib/queue/worker.js
 ```
 
-## Production Deployment Slice
+## Docker Production Path (existing)
 
-This repository now includes a minimal production container path for the **current single-instance architecture**:
+This repository still includes the existing production container path for the **current single-instance architecture**:
 
 - `Dockerfile` - production-oriented image with ffmpeg/runtime libraries and `next start`.
 - `docker-compose.prod.yml` - app + Postgres + Redis with persistent Docker volumes for uploads and renders.
@@ -127,14 +133,50 @@ docker compose -f docker-compose.prod.yml up --build
 
 Then open `http://localhost:3000`.
 
-### Important current limitations
+### Important current Docker limitations
 
 - **Persistent storage is mandatory**: uploaded assets and generated renders are still written to local disk. If the app container is recreated without mounted storage, user uploads and render artifacts are lost.
 - **Single-instance constraint**: this slice assumes one web process writing to one shared local filesystem path. Running multiple app instances without moving uploads/renders to object storage or a shared filesystem will cause inconsistent artifact availability.
 - **Use the download API for artifacts**: render downloads are supported via `/api/render/download`; the system is not yet an object-storage-backed artifact service.
-- **No worker split yet**: queue-worker separation, remote artifact storage, Stripe, and full monitoring/alerting are intentionally out of scope for this deployment slice.
+- **No worker split on Docker by default**: queue-worker separation and remote artifact storage remain optional / future work in the Docker path.
 
-### Operational notes
+## Cloudflare Deployment Scaffold
+
+This repository now also includes Cloudflare-native deployment scaffolding **alongside** the Docker path:
+
+- `wrangler.jsonc` - root Workers config for the Next.js app via `@opennextjs/cloudflare`.
+- `open-next.config.ts` - OpenNext Cloudflare adapter config.
+- `cloudflare/render-worker/` - separate Worker that consumes render jobs from Cloudflare Queues and proxies them into Cloudflare Containers via a Durable Object binding.
+- `src/lib/render-dispatch/` - render dispatch seam so the app can stay on `inline` locally while Cloudflare app builds switch to `cloudflare-queue`.
+- `public/_headers` - static asset caching headers for OpenNext output.
+
+### App Worker commands
+
+```bash
+npm run cf:build
+npm run cf:preview
+npm run cf:deploy
+```
+
+These scripts set `NEXT_CLOUDFLARE=1` and `RENDER_DISPATCH_MODE=cloudflare-queue` so the app Worker builds against the Cloudflare queue path instead of the local inline renderer.
+
+### Render control worker commands
+
+```bash
+npm run cf:render:dev
+npm run cf:render:deploy
+```
+
+### Important current Cloudflare limitations
+
+- The Next.js app Worker scaffolding now builds successfully, but the repo still needs the **final runtime compatibility pass** for Prisma/database access and production secret/runtime hardening before a full cutover.
+- The Cloudflare app build intentionally aliases the Node-only BullMQ/inline render modules to safe stubs so native `canvas`/`gl` code does not enter the Worker bundle.
+- The render-control Worker and container are production-structured scaffolds: queue ingress, Durable Object/container routing, health endpoints, and Docker image wiring are in place, but the **actual render execution callback flow remains intentionally deferred**.
+- Upload/render artifact storage still needs an object-storage decision (R2 or equivalent) before multi-instance rendering is complete.
+
+See [docs/deployment/cloudflare.md](docs/deployment/cloudflare.md) for the full Cloudflare setup, bindings, secrets, and deployment checklist.
+
+## Operational notes
 
 - Put the app behind a reverse proxy / TLS terminator in real production and set `NEXTAUTH_URL` to the public HTTPS origin.
 - Run Prisma migrations as part of deploy automation before routing traffic to a new release.
@@ -142,6 +184,7 @@ Then open `http://localhost:3000`.
 
 ## Documentation
 
+- [Cloudflare deployment guide](docs/deployment/cloudflare.md)
 - [Template docs index](docs/templates/README.md)
 - [Template system technical notes](docs/templates/template-system.md)
 - [Template user guide](docs/templates/template-user-guide.md)

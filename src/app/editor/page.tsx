@@ -489,19 +489,31 @@ export default function EditorPage() {
       });
 
       if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error || 'Failed to start render');
+        throw new Error(await readApiError(response, 'Failed to start render'));
       }
 
-      const { renderId, outputFilename: initialOutputFilename } = await response.json();
+      const { renderId, outputFilename: initialOutputFilename } = (await response.json()) as {
+        renderId: number;
+        outputFilename?: string;
+      };
 
       pollIntervalRef.current = window.setInterval(async () => {
         try {
           const statusResponse = await fetch(`/api/render?id=${renderId}`);
-          const status = await statusResponse.json().catch(() => null);
+          const status = (await statusResponse.json().catch(() => null)) as {
+            error?: string;
+            progress?: number;
+            status?: string;
+            downloadUrl?: string;
+            outputFilename?: string;
+          } | null;
 
           if (!statusResponse.ok) {
             throw new Error(status?.error || 'Status check failed');
+          }
+
+          if (!status) {
+            throw new Error('Status check failed');
           }
 
           setRenderProgress(status.progress || 0);
@@ -512,8 +524,7 @@ export default function EditorPage() {
 
             const downloadResponse = await fetch(status.downloadUrl || `/api/render/download?id=${renderId}`);
             if (!downloadResponse.ok) {
-              const payload = await downloadResponse.json().catch(() => null);
-              throw new Error(payload?.error || 'Failed to download video');
+              throw new Error(await readApiError(downloadResponse, 'Failed to download video'));
             }
 
             const blob = await downloadResponse.blob();
