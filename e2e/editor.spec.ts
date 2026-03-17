@@ -1,7 +1,53 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 
 function scriptEditor(page: Page) {
   return page.locator('textarea[spellcheck="false"]');
+}
+
+type TemplateListItem = {
+  id: number;
+  title: string;
+  category: string | null;
+  status: string;
+  tags: string[];
+};
+
+type TemplateDetail = TemplateListItem & {
+  placeholders: Array<{ name: string; label: string; type: string }>;
+};
+
+async function registerUser(email: string, password: string, request: APIRequestContext) {
+  const response = await request.post('/api/auth/register', {
+    data: {
+      name: 'Editor Template User',
+      email,
+      password,
+    },
+  });
+
+  expect(response.ok()).toBeTruthy();
+}
+
+async function signInToEditor(page: Page, email: string, password: string) {
+  const request = page.context().request;
+  const csrfResponse = await request.get('/api/auth/csrf');
+  expect(csrfResponse.ok()).toBeTruthy();
+
+  const { csrfToken } = (await csrfResponse.json()) as { csrfToken: string };
+
+  const signInResponse = await request.post('/api/auth/callback/credentials', {
+    form: {
+      csrfToken,
+      email,
+      password,
+      callbackUrl: 'http://localhost:3000/editor',
+      json: 'true',
+    },
+  });
+
+  expect(signInResponse.ok()).toBeTruthy();
+  await page.goto('/editor');
+  await page.waitForLoadState('networkidle');
 }
 
 test.describe('Editor Page', () => {
@@ -74,6 +120,70 @@ output to "test.mp4", resolution: 1080x1920`);
     await expect(page.getByText('Errors')).toBeVisible();
     await expect(page.getByRole('button', { name: /^Export/i })).toBeDisabled();
     await expect(scriptEditor(page)).toBeVisible();
+  });
+
+  test('should save a private template with extracted placeholders from the editor', async ({ page, request }) => {
+    const timestamp = `${Date.now()}-${Math.round(Math.random() * 100000)}`;
+    const email = `editor-template-${timestamp}@example.com`;
+    const password = 'supersecure123';
+    const templateTitle = `Editor Save Template ${timestamp}`;
+
+    await registerUser(email, password, request);
+    await signInToEditor(page, email, password);
+
+    await scriptEditor(page).fill(`# Placeholder metadata: {{headline | Launch day energy}}, {{subhead | Warm cups, fast lines}}, {{cta | Visit today}}
+input hero_video = "hero.mp4"
+[0 - 6] = hero_video.Trim(0, 6)
+[1 - 5] = text "Launch day energy", style: title, position: center
+output to "editor-save-template.mp4", resolution: 1080x1920`);
+
+    await expect(page.getByText('{{headline}}').first()).toBeVisible();
+    await expect(page.getByText('{{subhead}}').first()).toBeVisible();
+    await expect(page.getByText('{{cta}}').first()).toBeVisible();
+
+    await page.getByLabel('Description').fill('Saved from the editor regression to verify private template persistence.');
+    await page.getByLabel('Category').fill('ads');
+    await page.getByLabel('Tags').fill('launch, social, launch');
+    await page.getByLabel('Status').selectOption('private');
+    await page.getByLabel('Title').fill(templateTitle);
+    await page.getByRole('button', { name: 'Save as template' }).click();
+
+    await expect(page.getByText('Template saved')).toBeVisible();
+    await expect(page.getByText(new RegExp(`${templateTitle} was saved with 3 placeholders as a private template\\.`))).toBeVisible();
+
+    const mineResponse = await page.context().request.get('/api/templates?scope=mine');
+    expect(mineResponse.ok()).toBeTruthy();
+
+    const mineData = (await mineResponse.json()) as { templates?: TemplateListItem[] };
+    const savedTemplate = mineData.templates?.find((template) => template.title === templateTitle);
+
+    expect(savedTemplate).toBeDefined();
+    expect(savedTemplate?.status).toBe('private');
+    expect(savedTemplate?.category).toBe('ads');
+    expect(savedTemplate?.tags).toEqual(['launch', 'social']);
+
+    const detailResponse = await page.context().request.get(`/api/templates/${savedTemplate!.id}`);
+    expect(detailResponse.ok()).toBeTruthy();
+
+    const detailData = (await detailResponse.json()) as { template?: TemplateDetail };
+    expect(detailData.template?.placeholders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'headline', label: 'Headline', type: 'text' }),
+        expect.objectContaining({ name: 'subhead', label: 'Subhead', type: 'text' }),
+        expect.objectContaining({ name: 'cta', label: 'Cta', type: 'text' }),
+      ])
+    );
+
+    const publicResponse = await page.context().request.get('/api/templates?scope=public');
+    expect(publicResponse.ok()).toBeTruthy();
+
+    const publicData = (await publicResponse.json()) as { templates?: TemplateListItem[] };
+    expect(publicData.templates?.some((template) => template.title === templateTitle)).toBeFalsy();
+
+    await page.goto('/account');
+    await page.getByRole('tab', { name: 'My Templates' }).click();
+    await expect(page.getByText(templateTitle, { exact: true })).toBeVisible();
+    await expect(page.getByText('Private workspace').first()).toBeVisible();
   });
 
   test('should navigate back to home', async ({ page }) => {

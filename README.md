@@ -99,6 +99,12 @@ npm run db:migrate
 node src/lib/queue/worker.js
 ```
 
+## Documentation
+
+- [Template docs index](docs/templates/README.md)
+- [Template system technical notes](docs/templates/template-system.md)
+- [Template user guide](docs/templates/template-user-guide.md)
+
 ## License
 
 MIT

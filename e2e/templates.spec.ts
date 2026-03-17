@@ -65,6 +65,33 @@ async function createPublicTemplate(request: APIRequestContext) {
   const title = `Neighborhood Coffee Launch ${timestamp}`;
   const description = 'A vertical launch spot for cafés, bakeries, and neighborhood food brands with a headline, offer, and closing CTA.';
 
+  return createConfiguredPublicTemplate(request, {
+    email,
+    password,
+    title,
+    description,
+    category: 'ads',
+  });
+}
+
+async function createConfiguredPublicTemplate(
+  request: APIRequestContext,
+  {
+    email,
+    password,
+    title,
+    description,
+    category,
+  }: {
+    email: string;
+    password: string;
+    title: string;
+    description: string;
+    category: string;
+  }
+) {
+  const templateCategory = category;
+
   await registerUser(email, password, request);
   await signInRequest(request, email, password);
 
@@ -72,7 +99,7 @@ async function createPublicTemplate(request: APIRequestContext) {
     data: {
       title,
       description,
-      category: 'ads',
+      category: templateCategory,
       status: 'public',
       vidscript: `# ${title}
 input hero_video = {{video1}}
@@ -246,6 +273,46 @@ test.describe('Templates Page', () => {
     await expect(
       page.getByText(featuredTemplate.priceCents === 0 ? 'Free' : `$${(featuredTemplate.priceCents / 100).toFixed(2)}`).first()
     ).toBeVisible();
+  });
+
+  test('filters the public library by category and keeps filter params in sync', async ({ page, request }) => {
+    const timestamp = `${Date.now()}-${Math.round(Math.random() * 100000)}`;
+    const adsTitle = `Ads Filter Coverage ${timestamp}`;
+    const memesTitle = `Memes Filter Coverage ${timestamp}`;
+
+    await createConfiguredPublicTemplate(request, {
+      email: `template-filter-ads-${timestamp}@example.com`,
+      password: 'supersecure123',
+      title: adsTitle,
+      description: 'Unique ads template used to verify category filtering.',
+      category: 'ads',
+    });
+
+    await createConfiguredPublicTemplate(request, {
+      email: `template-filter-memes-${timestamp}@example.com`,
+      password: 'supersecure123',
+      title: memesTitle,
+      description: 'Unique memes template used to verify category filtering.',
+      category: 'memes',
+    });
+
+    await page.goto('/templates');
+
+    await page.getByLabel('Category').selectOption('memes');
+    await expect(page).toHaveURL(/\/templates\?category=memes$/);
+    await expect(page.getByText(memesTitle, { exact: true })).toBeVisible();
+    await expect(page.getByText(adsTitle, { exact: true })).toHaveCount(0);
+
+    await page.getByLabel('Sort').selectOption('popular');
+    await expect(page).toHaveURL(/\/templates\?category=memes&sort=popular$/);
+    await expect(page.getByRole('button', { name: 'Clear filters' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Clear filters' }).click();
+    await expect(page).toHaveURL('/templates');
+    await expect(page.getByLabel('Category')).toHaveValue('');
+    await expect(page.getByLabel('Sort')).toHaveValue('recent');
+    await expect(page.getByText(memesTitle, { exact: true })).toBeVisible();
+    await expect(page.getByText(adsTitle, { exact: true })).toBeVisible();
   });
 
   test('keeps the create-new entry point wired to the editor', async ({ page }) => {
