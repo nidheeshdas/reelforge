@@ -1,57 +1,45 @@
-import type { ParserResult } from '../types/vidscript';
-import { parse } from './grammar/parser.js';
+import type { CompileOptions, CompileResult, ParserResult } from '@/types/vidscript';
+import { compileVidscript } from './compiler';
+import { parseVidscript } from './syntax';
 
-export function parseVidscript(code: string): ParserResult {
-  try {
-    const normalizedCode = code.endsWith('\n') ? code : `${code}\n`;
-    const ast = parse(normalizedCode);
-    return { ast, errors: [] };
-  } catch (error: unknown) {
-    const err = error as Error & { location?: { start: { line: number; column: number }; end: { line: number; column: number } } };
-    return {
-      ast: null,
-      errors: [
-        {
-          message: err.message || 'Unknown parsing error',
-          location: err.location,
-        },
-      ],
-    };
-  }
-}
+export { parseVidscript, compileVidscript };
+export type { CompileOptions, CompileResult, ParserResult };
 
-export function validateVidscript(code: string): { valid: boolean; errors: string[] } {
-  const result = parseVidscript(code);
-  
+export function validateVidscript(
+  code: string,
+  options: CompileOptions = {},
+): { valid: boolean; errors: string[] } {
+  const result = compileVidscript(code, options);
+
   if (result.errors.length > 0) {
     return {
       valid: false,
-      errors: result.errors.map((e) => e.message),
+      errors: result.errors.map((error) => error.message),
     };
   }
-  
-  if (!result.ast) {
-    return { valid: false, errors: ['Failed to parse AST'] };
+
+  if (!result.program) {
+    return { valid: false, errors: ['Failed to compile AST'] };
   }
-  
+
   return { valid: true, errors: [] };
 }
 
 export function extractPlaceholders(code: string): string[] {
   const placeholderRegex = /\{\{(\w+)(?:\s*\|\s*([^}]+))?\}\}/g;
   const placeholders: string[] = [];
-  let match;
-  
+  let match: RegExpExecArray | null;
+
   while ((match = placeholderRegex.exec(code)) !== null) {
     placeholders.push(match[1]);
   }
-  
+
   return Array.from(new Set(placeholders));
 }
 
 export function fillPlaceholders(
   code: string,
-  values: Record<string, string | number>
+  values: Record<string, string | number>,
 ): string {
   return code.replace(/\{\{(\w+)(?:\s*\|\s*([^}]+))?\}\}/g, (match, key, defaultValue) => {
     if (key in values) {

@@ -1,4 +1,5 @@
-import { parseVidscript } from '@/parser';
+import { compileVidscript } from '@/parser';
+import type { CompileOptions } from '@/types/vidscript';
 
 export const DEFAULT_RENDER_RESOLUTION = '1080x1920';
 const RESOLUTION_PATTERN = /^(\d{2,5})x(\d{2,5})$/;
@@ -28,12 +29,12 @@ function getOutputOptionValue(
 
   const record = options as Record<string, unknown>;
   const mappedValue = record[key];
-  if (typeof mappedValue === 'string') {
-    return mappedValue;
+  if (typeof mappedValue === 'string' || typeof mappedValue === 'number') {
+    return String(mappedValue);
   }
 
-  if (record.key === key && typeof record.value === 'string') {
-    return record.value;
+  if (record.key === key && (typeof record.value === 'string' || typeof record.value === 'number')) {
+    return String(record.value);
   }
 
   return undefined;
@@ -89,7 +90,8 @@ export function resolveRenderResolution(
 
 export function extractRenderScriptConfig(
   vidscript: string,
-  fallbackResolution: string = DEFAULT_RENDER_RESOLUTION
+  fallbackResolution: string = DEFAULT_RENDER_RESOLUTION,
+  compileOptions: CompileOptions = {},
 ): RenderScriptConfig {
   const fallbackResolutionConfig = resolveRenderResolution(undefined, fallbackResolution);
   const fallbackConfig: RenderScriptConfig = {
@@ -98,12 +100,12 @@ export function extractRenderScriptConfig(
     resolution: fallbackResolutionConfig.resolution,
   };
 
-  const parseResult = parseVidscript(vidscript);
-  if (!parseResult.ast) {
+  const compileResult = compileVidscript(vidscript, compileOptions);
+  if (!compileResult.program) {
     return fallbackConfig;
   }
 
-  const outputNode = parseResult.ast.statements.find((statement) => statement.type === 'Output');
+  const outputNode = compileResult.program.statements.find((statement) => statement.type === 'Output');
   if (!outputNode || outputNode.type !== 'Output') {
     return fallbackConfig;
   }

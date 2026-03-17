@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { parseVidscript, validateVidscript, extractPlaceholders, fillPlaceholders } from '../src/parser';
+import { compileVidscript, parseVidscript, validateVidscript, extractPlaceholders, fillPlaceholders } from '../src/parser';
 
 test.describe('Parser', () => {
   test('should parse valid input statement', () => {
@@ -88,6 +88,12 @@ test.describe('Parser', () => {
     expect(result.errors).toHaveLength(0);
   });
 
+  test('should reject module imports without resolver', () => {
+    const result = validateVidscript('import { intro } from "./intro.vid"\nuse intro at 0s with {}');
+    expect(result.valid).toBe(false);
+    expect(result.errors[0]).toContain('Unable to resolve module');
+  });
+
   test('should extract placeholders', () => {
     const placeholders = extractPlaceholders('input video = {{video1}}\ntext "{{title}}"');
     expect(placeholders).toContain('video1');
@@ -110,7 +116,7 @@ test.describe('Parser', () => {
     const result1 = parseVidscript('[0 - 10] = video');
     const result2 = parseVidscript('[0s - 10s] = video');
     const result3 = parseVidscript('[frame 0 - frame 30] = video');
-    
+
     expect(result1.errors).toHaveLength(0);
     expect(result2.errors).toHaveLength(0);
     expect(result3.errors).toHaveLength(0);
@@ -125,9 +131,101 @@ test.describe('Parser', () => {
         {
           type: 'VideoTrim',
           target: 'video',
-          params: {},
+          params: { start: 0, end: 30 },
         },
       ],
     });
+  });
+
+  test('should parse module syntax with exports and use statements', () => {
+    const result = parseVidscript(`
+import { intro, outro as finish } from "./pack.vid"
+import * as pack from "./pack.vid"
+export const DEFAULT_DURATION = 3s
+export timeline intro(hero: video, headline: text = "Hello") {
+  [0s - DEFAULT_DURATION] = hero.Trim(0, DEFAULT_DURATION)
+  [0.5s - 2s] = text headline, style: title, color: BRAND_COLOR
+  use pack.bump at 2s with { hero: hero }
+}
+use finish at 0s with { hero: main, headline: "Hi" }
+    `);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.ast?.statements).toHaveLength(5);
+    expect(result.ast?.statements[0]).toMatchObject({
+      type: 'Import',
+      clause: {
+        type: 'NamedImportClause',
+        specifiers: [
+          { imported: 'intro', local: 'intro' },
+          { imported: 'outro', local: 'finish' },
+        ],
+      },
+      source: './pack.vid',
+    });
+    expect(result.ast?.statements[1]).toMatchObject({
+      type: 'Import',
+      clause: { type: 'NamespaceImportClause', local: 'pack' },
+    });
+    expect(result.ast?.statements[2]).toMatchObject({
+      type: 'ExportConst',
+      name: 'DEFAULT_DURATION',
+      value: 3,
+    });
+    expect(result.ast?.statements[3]).toMatchObject({
+      type: 'ExportTimeline',
+      name: 'intro',
+      params: [
+        { name: 'hero', type: 'video', default: null },
+        { name: 'headline', type: 'text', default: 'Hello' },
+      ],
+    });
+    expect(result.ast?.statements[4]).toMatchObject({
+      type: 'UseTimeline',
+      timeline: 'finish',
+      at: { value: 0 },
+      with: {
+        type: 'ObjectExpression',
+        properties: [
+          { key: 'hero', value: 'main' },
+          { key: 'headline', value: 'Hi' },
+        ],
+      },
+    });
+  });
+
+  test('should lower same-file exported timelines', () => {
+    const result = compileVidscript(`
+input main = "hero.mp4"
+export const DEFAULT_DURATION = 3s
+export timeline intro(hero: video, headline: text = "Hello") {
+  [0s - DEFAULT_DURATION] = hero.Trim(0, DEFAULT_DURATION)
+  [0.5s - 2s] = text headline, style: title
+}
+use intro at 1s with { hero: main }
+output to "render.mp4"
+    `);
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.program?.statements).toMatchObject([
+      { type: 'Input', name: 'main', path: 'hero.mp4' },
+      {
+        type: 'TimeBlock',
+        start: { value: 1 },
+        end: { value: 4 },
+        instructions: [
+          { type: 'VideoTrim', target: 'main', params: { start: 0, end: 3 } },
+        ],
+      },
+      {
+        type: 'TimeBlock',
+        start: { value: 1.5 },
+        end: { value: 3 },
+        instructions: [
+          { type: 'Text', content: 'Hello', params: { style: 'title' } },
+        ],
+      },
+      { type: 'Output', path: 'render.mp4' },
+    ]);
   });
 });
