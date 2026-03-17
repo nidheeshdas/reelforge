@@ -1,9 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { signIn, signOut, useSession } from 'next-auth/react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -17,6 +17,7 @@ import {
   Cloud,
   FolderOpen,
   Key,
+  LayoutTemplate,
   Link2,
   Loader2,
   LogOut,
@@ -55,6 +56,22 @@ interface ConnectionCardConfig {
   destinationLabel: string;
   destinationHref: string;
   accentClass: string;
+}
+
+interface TemplateListItem {
+  id: number;
+  creatorId: number;
+  title: string;
+  description: string | null;
+  category: string | null;
+  status: string;
+  publishedAt: string | null;
+  updatedAt: string;
+}
+
+interface TemplateMetadataForm {
+  title: string;
+  category: string;
 }
 
 const PROVIDER_NAMES: Record<string, string> = {
@@ -128,15 +145,92 @@ async function readResponseError(response: Response, fallback: string) {
   return fallback;
 }
 
+function formatTemplateCategory(category: string | null) {
+  if (!category) {
+    return 'Uncategorized';
+  }
+
+  return category
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatTemplateStatus(status: string) {
+  return status.replace(/[-_]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatTemplateDate(value: string | null) {
+  if (!value) {
+    return 'Not yet';
+  }
+
+  return new Date(value).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
+function getTemplateStatusBadgeClass(status: string) {
+  switch (status) {
+    case 'public':
+      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200';
+    case 'private':
+      return 'border-blue-500/30 bg-blue-500/10 text-blue-200';
+    case 'archived':
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-200';
+    default:
+      return 'border-slate-700 bg-slate-900/80 text-slate-300';
+  }
+}
+
+function getTemplateVisibility(template: TemplateListItem) {
+  if (template.status === 'public') {
+    return {
+      label: 'Public listing',
+      detail: template.publishedAt
+        ? `Published ${formatTemplateDate(template.publishedAt)}`
+        : 'Visible in the public template library.',
+      className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+    };
+  }
+
+  if (template.status === 'archived') {
+    return {
+      label: 'Hidden',
+      detail: 'Archived templates stay off the public library until you publish again.',
+      className: 'border-amber-500/30 bg-amber-500/10 text-amber-200',
+    };
+  }
+
+  return {
+    label: 'Private workspace',
+    detail: 'Only you can access this template right now.',
+    className: 'border-slate-700 bg-slate-900/80 text-slate-300',
+  };
+}
+
 function AccountPageContent() {
+  const router = useRouter();
   const { data: session, status, update: updateSession } = useSession();
   const searchParams = useSearchParams();
 
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('profile');
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesLoaded, setTemplatesLoaded] = useState(false);
+  const [templateActionKey, setTemplateActionKey] = useState<string | null>(null);
+  const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
+  const [templateMetadataForm, setTemplateMetadataForm] = useState<TemplateMetadataForm>({
+    title: '',
+    category: '',
+  });
 
   const [newApiKey, setNewApiKey] = useState('');
   const [newApiKeyProvider, setNewApiKeyProvider] = useState('openai');
@@ -162,6 +256,13 @@ function AccountPageContent() {
   useEffect(() => {
     if (!session) {
       setLoading(false);
+      setActiveTab('profile');
+      setTemplates([]);
+      setTemplatesLoaded(false);
+      setTemplatesLoading(false);
+      setTemplateActionKey(null);
+      setEditingTemplateId(null);
+      setTemplateMetadataForm({ title: '', category: '' });
       return;
     }
 
@@ -201,6 +302,43 @@ function AccountPageContent() {
       setLoading(false);
     }
   };
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      setTemplatesLoading(true);
+      setTemplatesLoaded(true);
+
+      const response = await fetch('/api/templates?scope=mine', {
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error(await readResponseError(response, 'Failed to fetch your templates.'));
+      }
+
+      const data = (await response.json()) as { templates?: TemplateListItem[] };
+      setTemplates(Array.isArray(data.templates) ? data.templates : []);
+      setTemplatesLoaded(true);
+    } catch (error) {
+      console.error('Failed to load templates:', error);
+      setActionNotice({
+        tone: 'error',
+        title: 'Unable to load templates',
+        description: error instanceof Error ? error.message : 'Please refresh the page and try again.',
+      });
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!session || activeTab !== 'templates' || templatesLoaded || templatesLoading) {
+      return;
+    }
+
+    void loadTemplates();
+  }, [activeTab, loadTemplates, session, templatesLoaded, templatesLoading]);
 
   const setSuccessNotice = (title: string, description: string) =>
     setActionNotice({ tone: 'success', title, description });
@@ -339,6 +477,138 @@ function AccountPageContent() {
     }
   };
 
+  const handleStartTemplateEdit = (template: TemplateListItem) => {
+    setEditingTemplateId(template.id);
+    setTemplateMetadataForm({
+      title: template.title,
+      category: template.category ?? '',
+    });
+  };
+
+  const handleCancelTemplateEdit = () => {
+    setEditingTemplateId(null);
+    setTemplateMetadataForm({ title: '', category: '' });
+  };
+
+  const handleSaveTemplateMetadata = async (templateId: number) => {
+    const trimmedTitle = templateMetadataForm.title.trim();
+
+    if (!trimmedTitle) {
+      setErrorNotice('Template title required', 'Add a title before saving template metadata.');
+      return;
+    }
+
+    setTemplateActionKey(`save:${templateId}`);
+    try {
+      const response = await fetch(`/api/templates/${templateId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: trimmedTitle,
+          category: templateMetadataForm.category,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await readResponseError(response, 'Failed to update template metadata.'));
+      }
+
+      const data = (await response.json()) as { template?: TemplateListItem };
+      if (!data.template) {
+        throw new Error('Template metadata update returned no template payload.');
+      }
+
+      setTemplates((current) =>
+        current.map((template) => (template.id === templateId ? { ...template, ...data.template } : template))
+      );
+      setEditingTemplateId(null);
+      setTemplateMetadataForm({ title: '', category: '' });
+      setSuccessNotice('Template updated', `${data.template.title} metadata has been saved.`);
+    } catch (error) {
+      console.error('Failed to update template metadata:', error);
+      setErrorNotice(
+        'Template update failed',
+        error instanceof Error ? error.message : 'Please try saving the template again.'
+      );
+    } finally {
+      setTemplateActionKey(null);
+    }
+  };
+
+  const handleToggleTemplateVisibility = async (template: TemplateListItem) => {
+    const nextAction = template.status === 'public' ? 'unpublish' : 'publish';
+
+    setTemplateActionKey(`${nextAction}:${template.id}`);
+    try {
+      const response = await fetch(`/api/templates/${template.id}/${nextAction}`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          await readResponseError(
+            response,
+            nextAction === 'publish' ? 'Failed to publish template.' : 'Failed to unpublish template.'
+          )
+        );
+      }
+
+      const data = (await response.json()) as { template?: TemplateListItem };
+      if (!data.template) {
+        throw new Error('Lifecycle update returned no template payload.');
+      }
+
+      setTemplates((current) =>
+        current.map((item) => (item.id === template.id ? { ...item, ...data.template } : item))
+      );
+      setSuccessNotice(
+        nextAction === 'publish' ? 'Template published' : 'Template unpublished',
+        nextAction === 'publish'
+          ? `${data.template.title} is now visible in the public template library.`
+          : `${data.template.title} has been moved back to your private workspace.`
+      );
+    } catch (error) {
+      console.error('Failed to update template lifecycle:', error);
+      setErrorNotice(
+        nextAction === 'publish' ? 'Publish failed' : 'Unpublish failed',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+    } finally {
+      setTemplateActionKey(null);
+    }
+  };
+
+  const handleOpenTemplateInEditor = async (templateId: number) => {
+    setTemplateActionKey(`open:${templateId}`);
+    try {
+      const response = await fetch(`/api/templates/${templateId}`, {
+        cache: 'no-store',
+        credentials: 'same-origin',
+      });
+
+      if (!response.ok) {
+        throw new Error(await readResponseError(response, 'Failed to load template.'));
+      }
+
+      const data = (await response.json()) as { template?: { vidscript?: string } };
+      const vidscript = data.template?.vidscript;
+
+      if (!vidscript) {
+        throw new Error('The selected template is missing its VidScript content.');
+      }
+
+      window.localStorage.setItem('vidscript_import', vidscript);
+      router.push('/editor');
+    } catch (error) {
+      console.error('Failed to open template in editor:', error);
+      setErrorNotice(
+        'Unable to open template',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
+      setTemplateActionKey(null);
+    }
+  };
+
   const getInitials = (value: string) =>
     value
       .split(' ')
@@ -350,6 +620,8 @@ function AccountPageContent() {
   const apiKeyCount = apiKeys.length;
   const connectedCount = connections.length;
   const availableIntegrations = CONNECTIONS.length;
+  const publishedTemplateCount = templates.filter((template) => template.status === 'public').length;
+  const privateTemplateCount = templates.filter((template) => template.status !== 'public').length;
 
   if (status === 'loading' || (session && loading)) {
     return (
@@ -620,8 +892,8 @@ function AccountPageContent() {
 
             {renderNotice(activeNotice)}
 
-            <Tabs defaultValue="profile" className="space-y-5">
-              <TabsList className="grid h-auto w-full grid-cols-3 rounded-2xl border border-slate-800 bg-slate-950/70 p-1.5">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
+              <TabsList className="grid h-auto w-full grid-cols-4 rounded-2xl border border-slate-800 bg-slate-950/70 p-1.5">
                 <TabsTrigger value="profile" className={tabTriggerClass}>
                   <User className="h-4 w-4" />
                   Profile
@@ -633,6 +905,10 @@ function AccountPageContent() {
                 <TabsTrigger value="connections" className={tabTriggerClass}>
                   <Link2 className="h-4 w-4" />
                   Connections
+                </TabsTrigger>
+                <TabsTrigger value="templates" className={tabTriggerClass}>
+                  <LayoutTemplate className="h-4 w-4" />
+                  My Templates
                 </TabsTrigger>
               </TabsList>
 
@@ -908,6 +1184,267 @@ function AccountPageContent() {
                     </CardContent>
                   </Card>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="templates" className="m-0">
+                <Card className={sectionCardClass}>
+                  <CardHeader className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <CardTitle>My templates</CardTitle>
+                      <CardDescription className="text-slate-400">
+                        Manage the VidScript templates saved to your account, update lightweight metadata, and control
+                        whether each template stays private or becomes public.
+                      </CardDescription>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        asChild
+                        variant="outline"
+                        className="border-slate-700 bg-transparent text-slate-100 hover:bg-slate-900"
+                      >
+                        <Link href="/templates">Browse library</Link>
+                      </Button>
+                      <Button asChild className="bg-blue-600 text-white hover:bg-blue-500">
+                        <Link href="/editor">Create template</Link>
+                      </Button>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-6">
+                    {templatesLoading ? (
+                      <div className="flex items-center justify-center rounded-2xl border border-slate-800 bg-slate-950/55 px-4 py-12 text-slate-300">
+                        <Loader2 className="mr-3 h-5 w-5 animate-spin text-slate-200" />
+                        Loading your templates…
+                      </div>
+                    ) : templates.length === 0 ? (
+                      <div className="rounded-3xl border border-dashed border-slate-800 bg-slate-950/55 px-6 py-10 text-center">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-800 bg-slate-900/70 text-slate-100">
+                          <LayoutTemplate className="h-5 w-5" />
+                        </div>
+                        <p className="mt-4 text-base font-semibold text-slate-100">No templates saved yet</p>
+                        <p className="mt-2 text-sm text-slate-400">
+                          Save a VidScript from the editor to start building a reusable template library for your
+                          account.
+                        </p>
+                        <div className="mt-5 flex justify-center gap-3">
+                          <Button asChild>
+                            <Link href="/editor">Open editor</Link>
+                          </Button>
+                          <Button
+                            asChild
+                            variant="outline"
+                            className="border-slate-700 bg-transparent text-slate-100 hover:bg-slate-900"
+                          >
+                            <Link href="/templates">View public templates</Link>
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid gap-3 md:grid-cols-3">
+                          {[
+                            { label: 'Saved templates', value: templates.length, detail: 'Private drafts and public listings' },
+                            { label: 'Published', value: publishedTemplateCount, detail: 'Visible to the community library' },
+                            { label: 'Private', value: privateTemplateCount, detail: 'Only available inside your account' },
+                          ].map((item) => (
+                            <div
+                              key={item.label}
+                              className="rounded-2xl border border-slate-800 bg-slate-900/50 px-4 py-3"
+                            >
+                              <div className="text-[11px] uppercase tracking-[0.22em] text-slate-500">{item.label}</div>
+                              <div className="mt-2 text-2xl font-semibold text-slate-50">{item.value}</div>
+                              <p className="mt-1 text-xs text-slate-500">{item.detail}</p>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="space-y-4">
+                          {templates.map((template) => {
+                            const visibility = getTemplateVisibility(template);
+                            const isEditing = editingTemplateId === template.id;
+                            const isRowBusy = templateActionKey?.endsWith(`:${template.id}`) ?? false;
+                            const isOpening = templateActionKey === `open:${template.id}`;
+                            const isSavingMetadata = templateActionKey === `save:${template.id}`;
+                            const lifecycleAction =
+                              template.status === 'public'
+                                ? {
+                                    key: `unpublish:${template.id}`,
+                                    label: 'Unpublish',
+                                    loadingLabel: 'Unpublishing…',
+                                  }
+                                : {
+                                    key: `publish:${template.id}`,
+                                    label: 'Publish',
+                                    loadingLabel: 'Publishing…',
+                                  };
+
+                            return (
+                              <div
+                                key={template.id}
+                                className="rounded-3xl border border-slate-800 bg-[linear-gradient(180deg,rgba(14,23,39,0.96),rgba(9,14,25,0.94))] p-5"
+                              >
+                                <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                                  <div className="space-y-4">
+                                    <div className="space-y-2">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <h3 className="text-lg font-semibold text-slate-50">{template.title}</h3>
+                                        <Badge
+                                          variant="outline"
+                                          className={getTemplateStatusBadgeClass(template.status)}
+                                        >
+                                          {formatTemplateStatus(template.status)}
+                                        </Badge>
+                                        <Badge variant="outline" className={visibility.className}>
+                                          {visibility.label}
+                                        </Badge>
+                                      </div>
+
+                                      <p className="text-sm text-slate-400">
+                                        {template.description || 'Reusable VidScript starting point ready for your next edit.'}
+                                      </p>
+                                    </div>
+
+                                    <div className="flex flex-wrap gap-2 text-xs text-slate-400">
+                                      <span className="rounded-full border border-slate-800 bg-slate-950/70 px-3 py-1.5">
+                                        Category: {formatTemplateCategory(template.category)}
+                                      </span>
+                                      <span className="rounded-full border border-slate-800 bg-slate-950/70 px-3 py-1.5">
+                                        Updated {formatTemplateDate(template.updatedAt)}
+                                      </span>
+                                      <span className="rounded-full border border-slate-800 bg-slate-950/70 px-3 py-1.5">
+                                        {visibility.detail}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2 lg:max-w-sm lg:justify-end">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="border-slate-700 bg-transparent text-slate-100 hover:bg-slate-900"
+                                      onClick={() => handleStartTemplateEdit(template)}
+                                      disabled={isRowBusy}
+                                    >
+                                      Edit metadata
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="border-slate-700 bg-transparent text-slate-100 hover:bg-slate-900"
+                                      onClick={() => handleToggleTemplateVisibility(template)}
+                                      disabled={isRowBusy}
+                                    >
+                                      {templateActionKey === lifecycleAction.key ? (
+                                        <>
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          {lifecycleAction.loadingLabel}
+                                        </>
+                                      ) : (
+                                        lifecycleAction.label
+                                      )}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="border-slate-700 bg-transparent text-slate-100 hover:bg-slate-900"
+                                      onClick={() => handleOpenTemplateInEditor(template.id)}
+                                      disabled={isRowBusy}
+                                    >
+                                      {isOpening ? (
+                                        <>
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          Opening…
+                                        </>
+                                      ) : (
+                                        'Open in editor'
+                                      )}
+                                    </Button>
+                                    <Button asChild size="sm" className="bg-blue-600 text-white hover:bg-blue-500">
+                                      <Link href={`/templates/${template.id}`}>
+                                        <FolderOpen className="mr-2 h-4 w-4" />
+                                        Open
+                                      </Link>
+                                    </Button>
+                                  </div>
+                                </div>
+
+                                {isEditing ? (
+                                  <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                                    <div className="grid gap-4 md:grid-cols-2">
+                                      <div className="space-y-2">
+                                        <label
+                                          htmlFor={`template-title-${template.id}`}
+                                          className="text-sm font-medium text-slate-200"
+                                        >
+                                          Title
+                                        </label>
+                                        <Input
+                                          id={`template-title-${template.id}`}
+                                          value={templateMetadataForm.title}
+                                          onChange={(event) =>
+                                            setTemplateMetadataForm((current) => ({
+                                              ...current,
+                                              title: event.target.value,
+                                            }))
+                                          }
+                                          className="border-slate-700 bg-slate-950/80 text-slate-100"
+                                        />
+                                      </div>
+
+                                      <div className="space-y-2">
+                                        <label
+                                          htmlFor={`template-category-${template.id}`}
+                                          className="text-sm font-medium text-slate-200"
+                                        >
+                                          Category
+                                        </label>
+                                        <Input
+                                          id={`template-category-${template.id}`}
+                                          value={templateMetadataForm.category}
+                                          onChange={(event) =>
+                                            setTemplateMetadataForm((current) => ({
+                                              ...current,
+                                              category: event.target.value,
+                                            }))
+                                          }
+                                          placeholder="e.g. Travel"
+                                          className="border-slate-700 bg-slate-950/80 text-slate-100"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-4 flex flex-wrap justify-end gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="border-slate-700 bg-transparent text-slate-100 hover:bg-slate-900"
+                                        onClick={handleCancelTemplateEdit}
+                                        disabled={isSavingMetadata}
+                                      >
+                                        Cancel
+                                      </Button>
+                                      <Button size="sm" onClick={() => handleSaveTemplateMetadata(template.id)} disabled={isSavingMetadata}>
+                                        {isSavingMetadata ? (
+                                          <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Saving…
+                                          </>
+                                        ) : (
+                                          'Save metadata'
+                                        )}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
               </TabsContent>
             </Tabs>
           </div>

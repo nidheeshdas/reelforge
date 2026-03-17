@@ -16,6 +16,7 @@ import {
   sanitizeDownloadFilename,
   type RenderScriptConfig,
 } from '@/render/render-config';
+import { type TemplateStatusValue } from '@/lib/templates/status';
 
 const DEFAULT_CODE = `# Welcome to ReelForge!
 # Write your video script here
@@ -57,6 +58,43 @@ interface ProjectSettingsForm {
   height: string;
 }
 
+interface TemplateSaveForm {
+  title: string;
+  description: string;
+  category: string;
+  tags: string;
+  status: TemplateStatusValue;
+}
+
+interface TemplateSaveNotice {
+  tone: 'success' | 'error';
+  title: string;
+  description: string;
+}
+
+const DEFAULT_TEMPLATE_STATUS: TemplateStatusValue = 'draft';
+const TEMPLATE_STATUS_OPTIONS: Array<{
+  value: TemplateStatusValue;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'draft',
+    label: 'Draft',
+    description: 'Private working copy. Visible only to you until you deliberately publish or share it later.',
+  },
+  {
+    value: 'private',
+    label: 'Private',
+    description: 'Saved for your account but kept off any public template listings.',
+  },
+  {
+    value: 'public',
+    label: 'Public',
+    description: 'Explicitly publish this template so other users can discover it.',
+  },
+];
+
 function readProjectSettingsFromForm(form: HTMLFormElement): ProjectSettingsForm {
   const formData = new FormData(form);
 
@@ -65,6 +103,99 @@ function readProjectSettingsFromForm(form: HTMLFormElement): ProjectSettingsForm
     width: String(formData.get('canvasWidth') ?? ''),
     height: String(formData.get('canvasHeight') ?? ''),
   };
+}
+
+function buildSuggestedTemplateTitle(outputFilename: string): string {
+  const cleaned = sanitizeDownloadFilename(outputFilename)
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+
+  if (!cleaned) {
+    return 'Untitled Template';
+  }
+
+  return cleaned.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function trimOptionalText(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function parseTemplateTags(value: string): string[] | undefined {
+  const tags = Array.from(
+    new Set(
+      value
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 25);
+
+  return tags.length > 0 ? tags : undefined;
+}
+
+function buildPlaceholderLabel(name: string): string {
+  return name
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function buildTemplatePlaceholders(names: string[]) {
+  return Array.from(new Set(names)).map((name) => ({
+    name,
+    label: buildPlaceholderLabel(name),
+    type: 'text',
+    required: false,
+  }));
+}
+
+async function readApiError(response: Response, fallback: string) {
+  try {
+    const data: unknown = await response.json();
+
+    if (
+      typeof data === 'object' &&
+      data !== null &&
+      'details' in data &&
+      typeof (data as { details?: unknown }).details === 'object' &&
+      (data as { details?: unknown }).details !== null
+    ) {
+      const details = (data as {
+        details?: {
+          formErrors?: string[];
+          fieldErrors?: Record<string, string[] | undefined>;
+        };
+      }).details;
+      const formError = details.formErrors?.find(Boolean);
+      if (formError) {
+        return formError;
+      }
+
+      const fieldError = Object.values(details.fieldErrors ?? {})
+        .flat()
+        .find(Boolean);
+      if (fieldError) {
+        return fieldError;
+      }
+    }
+
+    if (
+      typeof data === 'object' &&
+      data !== null &&
+      'error' in data &&
+      typeof (data as { error?: unknown }).error === 'string'
+    ) {
+      return (data as { error: string }).error;
+    }
+  } catch {
+    return fallback;
+  }
+
+  return fallback;
 }
 
 function readProjectSettingsForm(
@@ -124,8 +255,18 @@ export default function EditorPage() {
   );
   const [projectSettingsError, setProjectSettingsError] = useState<string | null>(null);
   const [projectSettingsNotice, setProjectSettingsNotice] = useState<string | null>(null);
+  const [templateSaveForm, setTemplateSaveForm] = useState<TemplateSaveForm>(() => ({
+    title: buildSuggestedTemplateTitle(readProjectSettingsForm(DEFAULT_CODE, extractRenderScriptConfig(DEFAULT_CODE)).outputFilename),
+    description: '',
+    category: '',
+    tags: '',
+    status: DEFAULT_TEMPLATE_STATUS,
+  }));
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateSaveNotice, setTemplateSaveNotice] = useState<TemplateSaveNotice | null>(null);
   const pollIntervalRef = useRef<number | null>(null);
   const projectSettingsFormRef = useRef<HTMLFormElement | null>(null);
+  const templateTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   const draftRenderConfig = useMemo(() => extractRenderScriptConfig(code), [code]);
   const previewRenderConfig = useMemo(() => extractRenderScriptConfig(previewCode), [previewCode]);
@@ -166,6 +307,9 @@ export default function EditorPage() {
   const exportActionTitle = errors.length
     ? 'Resolve script errors before exporting.'
     : 'Export an MP4 using the current output filename and canvas size.';
+  const saveTemplateActionTitle = errors.length
+    ? 'Fix script errors before saving this script as a template.'
+    : 'Capture template metadata and save the current VidScript to your library.';
 
   const applyDraftCode = useCallback((nextCode: string) => {
     const validation = validateVidscript(nextCode);
@@ -402,6 +546,101 @@ export default function EditorPage() {
     }
   }, [clearRenderPoll, code, draftRenderConfig.outputFilename, draftRenderConfig.resolutionKey, previewNeedsRefresh, syncPreview]);
 
+  const focusTemplateSaveForm = useCallback(() => {
+    setSidebarTab('editor');
+    window.requestAnimationFrame(() => {
+      templateTitleInputRef.current?.focus();
+      templateTitleInputRef.current?.select();
+    });
+  }, []);
+
+  const handleTemplateSaveFieldChange = useCallback(
+    (field: keyof TemplateSaveForm) =>
+      (
+        event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+      ) => {
+        setTemplateSaveForm((current) => ({ ...current, [field]: event.target.value }));
+        setTemplateSaveNotice(null);
+      },
+    []
+  );
+
+  const handleSaveTemplate = useCallback(
+    async (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      const validation = validateVidscript(code);
+      if (validation.errors.length > 0) {
+        setErrors(validation.errors);
+        setTemplateSaveNotice({
+          tone: 'error',
+          title: 'Unable to save template',
+          description: 'Fix VidScript validation issues before saving this template.',
+        });
+        return;
+      }
+
+      if (!templateSaveForm.title.trim()) {
+        setTemplateSaveNotice({
+          tone: 'error',
+          title: 'Template title required',
+          description: 'Add a clear title so you can find this template again later.',
+        });
+        templateTitleInputRef.current?.focus();
+        return;
+      }
+
+      const extractedPlaceholders = extractPlaceholders(code);
+
+      setSavingTemplate(true);
+      setTemplateSaveNotice(null);
+
+      try {
+        const response = await fetch('/api/templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: templateSaveForm.title.trim(),
+            description: trimOptionalText(templateSaveForm.description),
+            category: trimOptionalText(templateSaveForm.category),
+            tags: parseTemplateTags(templateSaveForm.tags),
+            status: templateSaveForm.status,
+            vidscript: code,
+            placeholders: buildTemplatePlaceholders(extractedPlaceholders),
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(await readApiError(response, 'Failed to save template.'));
+        }
+
+        const data = (await response.json()) as {
+          template?: { title?: string; status?: TemplateStatusValue };
+        };
+        const savedTitle = data.template?.title?.trim() || templateSaveForm.title.trim();
+        const savedStatus = data.template?.status || templateSaveForm.status;
+
+        setTemplateSaveNotice({
+          tone: 'success',
+          title: 'Template saved',
+          description:
+            savedStatus === 'public'
+              ? `${savedTitle} was saved and explicitly published as a public template.`
+              : `${savedTitle} was saved with ${extractedPlaceholders.length} placeholder${extractedPlaceholders.length === 1 ? '' : 's'} as a ${savedStatus} template.`,
+        });
+      } catch (error) {
+        setTemplateSaveNotice({
+          tone: 'error',
+          title: 'Template save failed',
+          description: error instanceof Error ? error.message : 'Please try saving the template again.',
+        });
+      } finally {
+        setSavingTemplate(false);
+      }
+    },
+    [code, templateSaveForm]
+  );
+
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#090f1a', color: '#dbe7ff' }}>
       <aside
@@ -455,7 +694,7 @@ export default function EditorPage() {
             </Link>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.5rem' }}>
             <Button
               onClick={handlePreview}
               variant="secondary"
@@ -471,6 +710,24 @@ export default function EditorPage() {
             >
               <Eye className="h-4 w-4" />
               Preview
+            </Button>
+
+            <Button
+              onClick={focusTemplateSaveForm}
+              variant="secondary"
+              size="sm"
+              title={saveTemplateActionTitle}
+              className="justify-center gap-2"
+              disabled={savingTemplate}
+              style={{
+                height: 38,
+                background: '#12253f',
+                color: '#dbe7ff',
+                border: '1px solid #2f4a73',
+              }}
+            >
+              <Clapperboard className="h-4 w-4" />
+              {savingTemplate ? 'Saving…' : 'Save template'}
             </Button>
 
             <Button
@@ -650,6 +907,179 @@ export default function EditorPage() {
 
                 <Button type="submit" size="sm" className="w-full" style={{ background: '#1f4ed8', color: '#f8fbff' }}>
                   Apply to script
+                </Button>
+              </form>
+            </div>
+
+            <div style={{ border: '1px solid #2a3d5f', borderRadius: 18, padding: '0.95rem', background: 'linear-gradient(180deg, rgba(14,24,43,0.98) 0%, rgba(8,14,25,0.98) 100%)' }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '0.3rem' }}>
+                <h3 style={{ margin: 0, fontSize: '0.95rem', color: '#e7efff' }}>Save as template</h3>
+                <span style={{ fontSize: '0.74rem', color: '#8aa4d4' }}>
+                  {placeholders.length} placeholder{placeholders.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#89a3d3', marginBottom: '0.8rem', lineHeight: 1.5 }}>
+                Capture reusable metadata for the current VidScript without changing the parser or preview flow.
+              </div>
+
+              <form onSubmit={handleSaveTemplate} style={{ display: 'grid', gap: '0.9rem' }}>
+                <div style={{ display: 'grid', gap: '0.35rem' }}>
+                  <label htmlFor="template-title" style={{ fontSize: '0.76rem', color: '#8aa4d4' }}>
+                    Title
+                  </label>
+                  <Input
+                    ref={templateTitleInputRef}
+                    id="template-title"
+                    value={templateSaveForm.title}
+                    onChange={handleTemplateSaveFieldChange('title')}
+                    placeholder={buildSuggestedTemplateTitle(projectSettingsFromCode.outputFilename)}
+                    className="border-slate-700 bg-slate-950/60 text-slate-100 placeholder:text-slate-500"
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gap: '0.35rem' }}>
+                  <label htmlFor="template-description" style={{ fontSize: '0.76rem', color: '#8aa4d4' }}>
+                    Description
+                  </label>
+                  <textarea
+                    id="template-description"
+                    value={templateSaveForm.description}
+                    onChange={handleTemplateSaveFieldChange('description')}
+                    placeholder="What is this template for, and when should someone use it?"
+                    rows={3}
+                    style={{
+                      width: '100%',
+                      borderRadius: 12,
+                      border: '1px solid #334155',
+                      background: 'rgba(2, 6, 23, 0.6)',
+                      color: '#e2e8f0',
+                      padding: '0.7rem 0.8rem',
+                      fontSize: '0.85rem',
+                      resize: 'vertical',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
+                  <div style={{ display: 'grid', gap: '0.35rem' }}>
+                    <label htmlFor="template-category" style={{ fontSize: '0.76rem', color: '#8aa4d4' }}>
+                      Category
+                    </label>
+                    <Input
+                      id="template-category"
+                      value={templateSaveForm.category}
+                      onChange={handleTemplateSaveFieldChange('category')}
+                      placeholder="Marketing"
+                      className="border-slate-700 bg-slate-950/60 text-slate-100 placeholder:text-slate-500"
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gap: '0.35rem' }}>
+                    <label htmlFor="template-status" style={{ fontSize: '0.76rem', color: '#8aa4d4' }}>
+                      Status
+                    </label>
+                    <select
+                      id="template-status"
+                      value={templateSaveForm.status}
+                      onChange={handleTemplateSaveFieldChange('status')}
+                      style={{
+                        height: 36,
+                        width: '100%',
+                        borderRadius: 12,
+                        border: '1px solid #334155',
+                        background: 'rgba(2, 6, 23, 0.75)',
+                        color: '#e2e8f0',
+                        padding: '0 0.8rem',
+                        fontSize: '0.85rem',
+                        outline: 'none',
+                      }}
+                    >
+                      {TEMPLATE_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gap: '0.35rem' }}>
+                  <label htmlFor="template-tags" style={{ fontSize: '0.76rem', color: '#8aa4d4' }}>
+                    Tags
+                  </label>
+                  <Input
+                    id="template-tags"
+                    value={templateSaveForm.tags}
+                    onChange={handleTemplateSaveFieldChange('tags')}
+                    placeholder="ugc, promo, social"
+                    className="border-slate-700 bg-slate-950/60 text-slate-100 placeholder:text-slate-500"
+                  />
+                  <div style={{ fontSize: '0.72rem', color: '#7088b6' }}>
+                    Separate tags with commas. Up to 25 unique tags are sent to the API.
+                  </div>
+                </div>
+
+                <div style={{ fontSize: '0.75rem', color: '#8aa4d4', lineHeight: 1.55, border: '1px solid #243656', background: '#0d1728', borderRadius: 12, padding: '0.7rem 0.8rem' }}>
+                  <div style={{ color: '#dbe7ff', fontWeight: 600, marginBottom: '0.25rem' }}>
+                    Placeholder metadata
+                  </div>
+                  <div style={{ marginBottom: placeholders.length > 0 ? '0.55rem' : 0 }}>
+                    Placeholder names extracted from the current script are sent with this template as reusable field metadata.
+                  </div>
+                  {placeholders.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                      {placeholders.map((placeholder) => (
+                        <span
+                          key={placeholder}
+                          style={{
+                            borderRadius: 999,
+                            border: '1px solid #31528a',
+                            background: 'rgba(36, 87, 255, 0.12)',
+                            color: '#cfe0ff',
+                            padding: '0.18rem 0.55rem',
+                            fontSize: '0.72rem',
+                          }}
+                        >
+                          {`{{${placeholder}}}`}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#9db5df' }}>
+                      No placeholders detected in the current script yet. The template will save without placeholder fields.
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ fontSize: '0.72rem', color: '#7088b6', lineHeight: 1.5 }}>
+                  {TEMPLATE_STATUS_OPTIONS.find((option) => option.value === templateSaveForm.status)?.description}
+                </div>
+
+                {templateSaveNotice && (
+                  <div
+                    style={{
+                      fontSize: '0.76rem',
+                      color: templateSaveNotice.tone === 'success' ? '#c7f9cc' : '#fecaca',
+                      border: templateSaveNotice.tone === 'success' ? '1px solid #1f5135' : '1px solid #7f1d1d',
+                      background: templateSaveNotice.tone === 'success' ? '#0f2018' : '#231018',
+                      borderRadius: 12,
+                      padding: '0.7rem 0.8rem',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>{templateSaveNotice.title}</div>
+                    <div>{templateSaveNotice.description}</div>
+                  </div>
+                )}
+
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="w-full"
+                  disabled={savingTemplate}
+                  style={{ background: 'linear-gradient(135deg, #2457ff, #3f8cff)', color: '#f8fbff' }}
+                >
+                  {savingTemplate ? 'Saving template…' : 'Save as template'}
                 </Button>
               </form>
             </div>

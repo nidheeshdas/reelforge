@@ -7,6 +7,18 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Foundation lifecycle values for creator-owned and public templates.
+enum TemplateStatus {
+  /// Initial working state for in-progress templates. Not eligible for the public template library.
+  draft
+  /// Owner-visible template that is ready to keep, but not listed publicly.
+  private
+  /// Publicly listed template. `publishedAt` should be set when this state is entered.
+  public
+  /// No longer publicly listed, but retained for ownership and purchase history.
+  archived
+}
+
 model User {
   id              Int       @id @default(autoincrement())
   email           String    @unique
@@ -20,105 +32,110 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  templates       Template[]
-  assets          Asset[]
-  shaders         Shader[]
-  renders         Render[]
-  purchases       Purchase[]
-  accounts        Account[]
-  sessions        Session[]
-  apiKeys         ApiKey[]
-  connectedApps   ConnectedApp[]
+  templates     Template[]
+  assets        Asset[]
+  shaders       Shader[]
+  renders       Render[]
+  purchases     Purchase[]
+  accounts      Account[]
+  sessions      Session[]
+  apiKeys       ApiKey[]
+  connectedApps ConnectedApp[]
 }
 
 model Template {
-  id            Int       @id @default(autoincrement())
+  id            Int            @id @default(autoincrement())
   creatorId     Int
-  creator       User      @relation(fields: [creatorId], references: [id])
+  creator       User           @relation(fields: [creatorId], references: [id])
   title         String
   description   String?
   thumbnailUrl  String?
-  vidscript     String    @db.Text
+  vidscript     String         @db.Text
   placeholders  Json?
   defaultValues Json?
-  priceCents    Int       @default(0)
+  priceCents    Int            @default(0)
   category      String?
   tags          String[]
-  downloads     Int       @default(0)
-  ratingAvg     Float     @default(0)
-  status        String    @default("draft")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  downloads     Int            @default(0)
+  ratingAvg     Float          @default(0)
+  status        TemplateStatus @default(draft)
+  /// Set when a template becomes publicly available in the library.
+  publishedAt   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
-  renders    Render[]
+  renders   Render[]
   purchases Purchase[]
+
+  @@index([status, publishedAt])
+  @@index([creatorId, status, updatedAt])
 }
 
 model Asset {
-  id         Int       @id @default(autoincrement())
-  userId     Int
-  user       User      @relation(fields: [userId], references: [id])
-  filename   String
-  filepath   String
-  fileType   String
-  fileSize   BigInt
-  duration   Float?
-  width      Int?
-  height     Int?
-  mimeType   String?
-  source     String?   // "local", "google-drive", "dropbox"
-  externalId String?  // Cloud storage file ID
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id])
+  filename     String
+  filepath     String
+  fileType     String
+  fileSize     BigInt
+  duration     Float?
+  width        Int?
+  height       Int?
+  mimeType     String?
+  source       String? // "local", "google-drive", "dropbox"
+  externalId   String? // Cloud storage file ID
   thumbnailUrl String?
-  createdAt  DateTime  @default(now())
+  createdAt    DateTime @default(now())
 
   @@index([userId])
   @@index([userId, source])
 }
 
 model Shader {
-  id        Int       @id @default(autoincrement())
+  id        Int      @id @default(autoincrement())
   userId    Int
-  user      User      @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
   name      String
-  glslCode  String    @db.Text
+  glslCode  String   @db.Text
   uniforms  Json?
-  createdAt DateTime  @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([userId, name])
 }
 
 model Render {
-  id            Int       @id @default(autoincrement())
-  userId        Int
-  user          User      @relation(fields: [userId], references: [id])
-  templateId    Int?
-  template      Template? @relation(fields: [templateId], references: [id])
-  vidscript     String    @db.Text
-  placeholders  Json?
-  status        String    @default("pending")
-  progress      Int       @default(0)
-  resolution    String    @default("1080x1920")
-  outputPath    String?
-  errorMessage  String?
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  user         User      @relation(fields: [userId], references: [id])
+  templateId   Int?
+  template     Template? @relation(fields: [templateId], references: [id])
+  vidscript    String    @db.Text
+  placeholders Json?
+  status       String    @default("pending")
+  progress     Int       @default(0)
+  resolution   String    @default("1080x1920")
+  outputPath   String?
+  errorMessage String?
   creditsUsed  Int       @default(1)
-  duration      Float?
-  createdAt     DateTime  @default(now())
-  completedAt   DateTime?
+  duration     Float?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
 
   @@index([userId])
   @@index([status])
 }
 
 model Purchase {
-  id                 Int       @id @default(autoincrement())
+  id                 Int      @id @default(autoincrement())
   buyerId            Int
-  buyer              User      @relation(fields: [buyerId], references: [id])
+  buyer              User     @relation(fields: [buyerId], references: [id])
   templateId         Int
-  template           Template  @relation(fields: [templateId], references: [id])
+  template           Template @relation(fields: [templateId], references: [id])
   amountCents        Int
   platformFeeCents   Int?
   creatorPayoutCents Int?
-  createdAt          DateTime  @default(now())
+  createdAt          DateTime @default(now())
 
   @@unique([buyerId, templateId])
 }
@@ -130,12 +147,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String?  @db.Text
-  access_token      String?  @db.Text
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String?  @db.Text
+  id_token          String? @db.Text
   session_state     String?
 
   @@unique([provider, providerAccountId])
@@ -150,30 +167,30 @@ model Session {
 }
 
 model ApiKey {
-  id          String   @id @default(cuid())
-  userId      Int
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider    String   // "openai", "anthropic", "openrouter"
-  key         String   // Encrypted API key
-  name        String?
-  isDefault   Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  lastUsedAt  DateTime?
+  id         String    @id @default(cuid())
+  userId     Int
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider   String // "openai", "anthropic", "openrouter"
+  key        String // Encrypted API key
+  name       String?
+  isDefault  Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
 
   @@unique([userId, provider])
 }
 
 model ConnectedApp {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   userId       Int
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider     String   // "github", "google-drive", "dropbox"
-  accessToken  String   @db.Text // Encrypted
-  refreshToken String?  @db.Text // Encrypted
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     String // "github", "google-drive", "dropbox"
+  accessToken  String    @db.Text // Encrypted
+  refreshToken String?   @db.Text // Encrypted
   expiresAt    DateTime?
-  metadata     Json?    // Provider-specific data
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  metadata     Json? // Provider-specific data
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@unique([userId, provider])
 }
