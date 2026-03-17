@@ -1,0 +1,11 @@
+.git
+.next
+node_modules
+playwright-report
+test-results
+.env
+.env.*
+npm-debug.log*
+Dockerfile.dev
+docker-compose.yml
+session-ses_*.md

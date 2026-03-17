@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/db/prisma';
+import { requireSessionUserId } from '@/lib/auth/session';
 import { renderHeadlessComposition } from '@/render/webgl-renderer';
 import { extractRenderScriptConfig } from '@/render/render-config';
 
@@ -16,6 +17,12 @@ function getBaseUrl(request: NextRequest): string {
 
 export async function POST(request: NextRequest) {
   try {
+    const auth = await requireSessionUserId();
+
+    if (auth.response) {
+      return auth.response;
+    }
+
     const body = await request.json();
     const { vidscript, resolution } = body;
 
@@ -31,7 +38,7 @@ export async function POST(request: NextRequest) {
 
     const render = await prisma.render.create({
       data: {
-        userId: 1,
+        userId: auth.userId,
         vidscript,
         status: 'pending',
         progress: 0,
@@ -108,6 +115,12 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const auth = await requireSessionUserId();
+
+  if (auth.response) {
+    return auth.response;
+  }
+
   const { searchParams } = new URL(request.url);
   const renderId = searchParams.get('id');
 
@@ -120,8 +133,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid render ID' }, { status: 400 });
   }
 
-  const render = await prisma.render.findUnique({
-    where: { id: parsedRenderId },
+  const render = await prisma.render.findFirst({
+    where: {
+      id: parsedRenderId,
+      userId: auth.userId,
+    },
   });
 
   if (!render) {

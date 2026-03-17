@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/db/prisma';
-import { writeFile, unlink } from 'fs/promises';
+import { writeFile } from 'fs/promises';
 import path from 'path';
+import { ensureUploadDir } from '@/lib/storage/paths';
 
 export async function GET() {
   try {
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
     
-    const uploadDir = process.env.UPLOAD_DIR || './public/uploads';
+    const uploadDir = ensureUploadDir();
     const filename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
     const filepath = path.join(uploadDir, filename);
     

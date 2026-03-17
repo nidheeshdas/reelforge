@@ -1,8 +1,8 @@
 import { spawn } from 'child_process';
 import { once } from 'events';
 import * as fs from 'fs';
-import * as path from 'path';
 import { applyCompositionState, buildComposition } from '@/lib/preview/composition';
+import { getRenderOutputPath, getRenderPublicPath } from '@/lib/storage/paths';
 import { HeadlessRenderEngine } from '@/render/headless-render-engine';
 
 const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -122,16 +122,13 @@ async function encodeVideoStream(
 export async function renderHeadlessComposition(options: WebGLRenderOptions): Promise<string> {
   const { renderId, vidscript, resolution, fps = 30, onProgress } = options;
   const { width, height } = resolution;
-  const outputDir = path.join(process.cwd(), 'public', 'renders');
-  const outputPath = path.join(outputDir, `${renderId}.mp4`);
-
-  fs.mkdirSync(outputDir, { recursive: true });
+  const outputPath = getRenderOutputPath(renderId);
 
   const engine = new HeadlessRenderEngine(width, height);
 
   try {
     await encodeVideoStream(engine, vidscript, width, height, fps, outputPath, onProgress);
-    return `/renders/${renderId}.mp4`;
+    return getRenderPublicPath(renderId);
   } catch (error) {
     if (fs.existsSync(outputPath)) {
       fs.unlinkSync(outputPath);

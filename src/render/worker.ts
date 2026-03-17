@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { compileVidscript, fillPlaceholders } from '@/parser';
 import { prisma } from '@/lib/db/prisma';
+import { ensureRenderDir, getRenderPublicPath } from '@/lib/storage/paths';
 import type { CompileOptions } from '@/types/vidscript';
 
 interface RenderOptions {
@@ -60,18 +61,14 @@ export async function renderVideo(options: RenderOptions): Promise<string> {
       throw new Error('Failed to compile vidscript');
     }
     
-    const outputDir = path.join(process.cwd(), 'public', 'renders');
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-    
+    const outputDir = ensureRenderDir();
     const outputPath = path.join(outputDir, `${renderId}.mp4`);
     const ast = parseResult.program;
     const duration = estimateDuration(ast);
     
     await processVideo(ast, outputPath, width, height, duration, onProgress);
     
-    const relativePath = `/renders/${renderId}.mp4`;
+    const relativePath = getRenderPublicPath(renderId);
     
     await prisma.render.update({
       where: { id: renderId },
